@@ -119,6 +119,10 @@ class ScimagoJRExtractor(BaseExtractor):
                     f"  - Bulk Write (Total): {bulk_write_total_time:.2f}s\n"
                     f"  - Total Time: {end_time - start_time:.2f}s"
                 )
+                
+                # Cleanup duplicates if count doesn't match
+                self.cleanup_year(year, total_records)
+                
                 self.save_checkpoint(f"scimagojr_{year}", "completed")
                 return True
             
@@ -127,6 +131,33 @@ class ScimagoJRExtractor(BaseExtractor):
         except Exception as e:
             self.logger.error(f"Error processing year {year}: {e}")
             raise e
+
+    def cleanup_year(self, year, expected_count):
+        """Checks if the number of records in MongoDB matches the expected count and cleans up duplicates if necessary."""
+        actual_count = self.collection.count_documents({"year": year})
+        if actual_count > expected_count:
+            self.logger.info(f"Year {year}: Found {actual_count} records, expected {expected_count}. Cleaning up duplicates...")
+            pipeline = [
+                {"$match": {"year": year}},
+                {"$group": {
+                    "_id": "$Sourceid",
+                    "dups": {"$push": "$_id"},
+                    "count": {"$sum": 1}
+                }},
+                {"$match": {"count": {"$gt": 1}}}
+            ]
+            duplicates = list(self.collection.aggregate(pipeline))
+            for doc in duplicates:
+                # Keep the first one, delete the rest
+                ids_to_delete = doc['dups'][1:]
+                self.collection.delete_many({"_id": {"$in": ids_to_delete}})
+            
+            new_count = self.collection.count_documents({"year": year})
+            self.logger.info(f"Year {year}: Cleanup finished. New count: {new_count}")
+        elif actual_count == expected_count:
+            self.logger.info(f"Year {year}: Count matches expected ({expected_count}). No cleanup needed.")
+        else:
+            self.logger.warning(f"Year {year}: Found fewer records ({actual_count}) than expected ({expected_count}).")
 
     def run(self, start_year, end_year, force_redownload=False, chunk_size=1000):
         """Runs the extraction for a range of years, updating only changed records."""

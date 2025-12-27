@@ -38,28 +38,10 @@ def create_indexes(**kwargs):
     db = client[db_name]
     collection = db['scimagojr']
     
-    # Cleanup: Remove duplicates before creating unique index
-    # This is a one-time cleanup that ensures the unique index can be created
-    pipeline = [
-        {"$group": {
-            "_id": {"Sourceid": "$Sourceid", "year": "$year"},
-            "dups": {"$push": "$_id"},
-            "count": {"$sum": 1}
-        }},
-        {"$match": {"count": {"$gt": 1}}}
-    ]
-    
-    duplicates = list(collection.aggregate(pipeline))
-    if duplicates:
-        print(f"Found {len(duplicates)} groups of duplicate records. Cleaning up...")
-        for doc in duplicates:
-            # Keep the first one, delete the rest
-            ids_to_delete = doc['dups'][1:]
-            collection.delete_many({"_id": {"$in": ids_to_delete}})
-        print("Cleanup finished.")
-
-    # Create unique index on Sourceid and year to optimize upserts and prevent duplicates
-    collection.create_index([('Sourceid', 1), ('year', 1)], unique=True)
+    # Create index on Sourceid and year to optimize upserts and avoid COLLSCAN
+    # We use a regular index first to ensure it's created even if duplicates exist.
+    # The extractor will handle the cleanup year by year.
+    collection.create_index([('Sourceid', 1), ('year', 1)])
 
 with DAG(
     'extract_scimagojr',
