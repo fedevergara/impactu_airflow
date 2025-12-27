@@ -1,47 +1,47 @@
 # ImpactU Airflow ETL
 
-Repositorio central de DAGs de Apache Airflow para los procesos de Extracción, Transformación y Carga (ETL) del proyecto ImpactU.
+Central repository for Apache Airflow DAGs for the Extraction, Transformation, and Loading (ETL) processes of the ImpactU project.
 
-## 🚀 Descripción
-Este proyecto orquestaliza la recolección de datos de diversas fuentes científicas y académicas, su procesamiento mediante la herramienta [Kahi](https://github.com/colav/Kahi) y su posterior carga en sistemas de consulta como MongoDB y Elasticsearch.
+## 🚀 Description
+This project orchestrates data collection from various scientific and academic sources, its processing using the [Kahi](https://github.com/colav/Kahi) tool, and its subsequent loading into query systems such as MongoDB and Elasticsearch.
 
-## 📂 Estructura del Proyecto
-El repositorio está organizado por etapas del ciclo de vida del dato:
+## 📂 Project Structure
+The repository is organized by data lifecycle stages:
 
-*   `extract/`: Lógica de extracción para fuentes como OpenAlex, ORCID, ROR, etc.
-*   `transform/`: Procesos de transformación y normalización (Kahi).
-*   `load/`: Scripts de carga hacia destinos finales.
-*   `deploys/`: Configuraciones de despliegue por entorno (dev, prod).
-*   `backups/`: Automatización de respaldos de bases de datos.
-*   `tests/`: Pruebas de integración y calidad de datos.
+*   `extract/`: Extraction logic for sources like OpenAlex, ORCID, ROR, etc.
+*   `transform/`: Transformation and normalization processes (Kahi).
+*   `load/`: Loading scripts to final destinations.
+*   `deploys/`: Deployment configurations per environment (dev, prod).
+*   `backups/`: Database backup automation.
+*   `tests/`: Integration and data quality tests.
 
-## 📋 Requisitos y Arquitectura
-Para detalles sobre los principios de diseño (Checkpoints, Idempotencia, Paralelismo), consulte el documento de [Requisitos del Sistema](REQUISITOS.md).
+## 📋 Requirements and Architecture
+For details on design principles (Checkpoints, Idempotency, Parallelism), see the [System Requirements](REQUIREMENTS.md) document.
 
-## 🛠 Estándar de Nombrado de DAGs
-Para mantener la consistencia en la interfaz de Airflow, seguimos esta convención:
+## 🛠 DAG Naming Standard
+To maintain consistency in the Airflow interface, we follow this convention:
 
-| Tipo | Formato | Ejemplo |
+| Type | Format | Example |
 | :--- | :--- | :--- |
-| **Extracción** | `extract_{fuente}` | `extract_openalex` |
-| **Transformación** | `transform_{entidad}` | `transform_sources` |
-| **Carga** | `load_{db}_{env}` | `load_mongodb_production` |
-| **Despliegue** | `deploy_{servicio}_{env}` | `deploy_mongodb_production` |
-| **Backup** | `backup_{db}_{nombre}` | `backup_mongodb_kahi` |
-| **Pruebas** | `tests_{servicio}` | `tests_kahi` |
+| **Extraction** | `extract_{source}` | `extract_openalex` |
+| **Transformation** | `transform_{entity}` | `transform_sources` |
+| **Loading** | `load_{db}_{env}` | `load_mongodb_production` |
+| **Deployment** | `deploy_{service}_{env}` | `deploy_mongodb_production` |
+| **Backup** | `backup_{db}_{name}` | `backup_mongodb_kahi` |
+| **Tests** | `tests_{service}` | `tests_kahi` |
 
-## ⚙️ Configuración y Desarrollo
-*(Sección en construcción)*
+## ⚙️ Configuration and Development
+*(Section under construction)*
 
-### Requisitos Previos
+### Prerequisites
 *   Docker & Docker Compose
 *   Apache Airflow 3.1.5
 *   Python 3.12+
 
-### Instalación
-1. Clonar el repositorio.
-2. Configurar las variables de entorno en un archivo `.env`.
-3. Levantar el entorno con Docker Compose.
+### Installation
+1. Clone the repository.
+2. Configure environment variables in a `.env` file.
+3. Start the environment with Docker Compose.
 
 ---
 **Colav - ImpactU**

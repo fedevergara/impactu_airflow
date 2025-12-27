@@ -1,6 +1,7 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.models.param import Param
 from datetime import datetime, timedelta
 from extract.scimagojr.scimagojr_extractor import ScimagoJRExtractor
 
@@ -15,49 +16,18 @@ default_args = {
 }
 
 def run_extraction_by_year(year, **kwargs):
+    # Get params from DAG
+    force_redownload = kwargs['params'].get('force_redownload', False)
+    chunk_size = kwargs['params'].get('chunk_size', 1000)
+    
     # Use MongoHook to get the connection
     hook = MongoHook(mongo_conn_id='mongodb_default')
     client = hook.get_conn()
     db_name = hook.connection.schema or 'impactu'
     
     extractor = ScimagoJRExtractor(None, db_name, client=client)
-    # The extractor now uses the airflow task logger automatically
     try:
-        data = extractor.fetch_year(year)
-        if not data:
-            print(f"No data found for year {year}")
-            return
-
-        print(f"Processing {len(data)} records for year {year}...")
-        
-        from pymongo import UpdateOne
-        import pandas as pd
-        operations = []
-        for record in data:
-            # Sanitize keys (replace dots) and handle NaN
-            sanitized_record = {
-                k.replace('.', '_'): (None if pd.isna(v) else v) 
-                for k, v in record.items()
-            }
-            
-            # Use Sourceid and year as unique identifier
-            source_id = sanitized_record.get('Sourceid')
-            if source_id:
-                operations.append(
-                    UpdateOne(
-                        {"Sourceid": source_id, "year": year},
-                        {"$set": sanitized_record},
-                        upsert=True
-                    )
-                )
-        
-        if operations:
-            result = extractor.collection.bulk_write(operations, ordered=False)
-            print(
-                f"Year {year}: {result.upserted_count} new, "
-                f"{result.modified_count} changed, "
-                f"{result.matched_count} unchanged."
-            )
+        extractor.process_year(year, force_redownload=force_redownload, chunk_size=chunk_size)
     finally:
         extractor.close()
 
@@ -68,6 +38,10 @@ with DAG(
     schedule='@yearly',
     catchup=False,
     tags=['extract', 'scimagojr'],
+    params={
+        "force_redownload": Param(False, type="boolean", description="Force data download even if already in cache or database"),
+        "chunk_size": Param(1000, type="integer", description="Number of records to insert in each bulk operation"),
+    },
 ) as dag:
 
     years = list(range(1999, datetime.now().year + 1))

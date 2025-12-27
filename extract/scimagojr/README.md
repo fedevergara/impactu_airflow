@@ -1,14 +1,20 @@
-# Extractor ScimagoJR
+# ScimagoJR Extractor
 
-Este módulo se encarga de la extracción de datos de ranking de revistas desde ScimagoJR.
+This module handles the extraction of journal ranking data from ScimagoJR.
 
-## Características
-*   **Checkpoints**: Utiliza una colección en MongoDB (`etl_checkpoints`) para rastrear qué años ya han sido procesados.
-*   **Idempotencia**: Si se vuelve a ejecutar un año, el sistema elimina los registros previos de ese año antes de insertar los nuevos, evitando duplicados.
-*   **Normalización**: Convierte el formato CSV/XLS de ScimagoJR a documentos JSON listos para MongoDB.
+## Features
+*   **Checkpoints**: Uses a MongoDB collection (`etl_checkpoints`) to track which years have already been processed.
+*   **Idempotency**: If a year is re-executed, the system updates existing records or inserts new ones (upsert), avoiding duplicates.
+*   **Normalization**: Converts ScimagoJR's CSV/XLS format into MongoDB-ready JSON documents.
 
-## Uso
-El extractor puede ser llamado desde un DAG de Airflow o como un script independiente.
+## Extraction Logic
+*   **Smart Download**: If the data file for a specific year is missing from the local cache, it will be downloaded automatically, regardless of the `force_redownload` parameter.
+*   **Data Synchronization**:
+    *   **Missing Records**: If records for a year are missing in the database, they are inserted.
+    *   **Existing Records**: If a record already exists (matched by `Sourceid` and `year`), it is updated to ensure it matches the source data, maintaining data integrity.
+
+## Usage
+The extractor can be called from an Airflow DAG or as a standalone script.
 
 ```python
 from extract.scimagojr.scimagojr_extractor import ScimagoJRExtractor

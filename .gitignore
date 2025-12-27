@@ -208,3 +208,7 @@ __marimo__/
 
 # Docker
 .env
+
+# ImpactU Cache
+impactu/cache/
+cache/
