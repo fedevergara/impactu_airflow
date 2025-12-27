@@ -7,7 +7,7 @@ import time
 from pymongo import UpdateOne
 
 class ScimagoJRExtractor(BaseExtractor):
-    def __init__(self, mongodb_uri, db_name, collection_name="scimagojr", client=None, cache_dir="/opt/airflow/impactu/cache/scimagojr"):
+    def __init__(self, mongodb_uri, db_name, collection_name="scimagojr", client=None, cache_dir="/opt/airflow/cache/scimagojr"):
         super().__init__(mongodb_uri, db_name, collection_name, client=client)
         self.base_url = "https://www.scimagojr.com/journalrank.php"
         self.cache_dir = cache_dir
