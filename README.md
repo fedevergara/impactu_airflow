@@ -35,8 +35,8 @@ Para mantener la consistencia en la interfaz de Airflow, seguimos esta convenci√
 
 ### Requisitos Previos
 *   Docker & Docker Compose
-*   Apache Airflow 2.x
-*   Python 3.9+
+*   Apache Airflow 3.1.5
+*   Python 3.12+
 
 ### Instalaci√≥n
 1. Clonar el repositorio.
