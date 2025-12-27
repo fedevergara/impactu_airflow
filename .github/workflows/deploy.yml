@@ -1,4 +1,4 @@
-name: Build and Push Airflow Image
+name: Validate and Test DAGs
 
 on:
   push:
@@ -10,13 +10,9 @@ on:
       - 'dags/**'
       - 'impactu/**'
       - 'requirements.txt'
-      - 'Dockerfile'
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
-  release:
-    types: [published]
-
-env:
-  DOCKER_HUB_REPO: colav/impactu_airflow
 
 jobs:
   test:
@@ -57,43 +53,6 @@ jobs:
         run: |
           export PYTHONPATH=$PYTHONPATH:.
           pytest tests/etl/test_scimagojr.py
-
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Build and push (Dev/Latest)
-        if: github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          build-args: |
-            BASE_IMAGE=colav/impactu_airflow:base-latest
-          tags: |
-            ${{ env.DOCKER_HUB_REPO }}:latest
-            ${{ env.DOCKER_HUB_REPO }}:${{ github.sha }}
-
-      - name: Build and push (Prod/Release)
-        if: github.event_name == 'release'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          build-args: |
-            BASE_IMAGE=colav/impactu_airflow:base-3.1.0
-          tags: |
-            ${{ env.DOCKER_HUB_REPO }}:3.1.0
-            ${{ env.DOCKER_HUB_REPO }}:${{ github.event.release.tag_name }}
 
   validate-on-dev:
     needs: test
