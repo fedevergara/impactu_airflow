@@ -47,5 +47,6 @@ module = [
     "pymongo.*",
     "requests.*",
     "pytest.*",
+    "mongomock.*",
 ]
 ignore_missing_imports = true
