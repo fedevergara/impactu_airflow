@@ -4,20 +4,21 @@ import importlib.util
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Dict
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "oxomoc_colombia_config.py")
 
 
-def load_config(path: str = CONFIG_PATH) -> Dict:
+def load_config(path: str = CONFIG_PATH) -> dict:
     spec = importlib.util.spec_from_file_location("oxomoc_config", path)
+    if spec is None or spec.loader is None:
+        raise FileNotFoundError(f"Cannot load config module from {path}")
+
     cfg = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cfg)  # type: ignore
-    return getattr(cfg, "endpoints", {})
+    spec.loader.exec_module(cfg)
+    return getattr(cfg, "endpoints", {}) or {}
 
 
 def ensure_oxomoc_import():
@@ -36,7 +37,9 @@ def ensure_oxomoc_import():
     # Monkeypatch lxml XPathElementEvaluator.evaluate if missing (compatibility across lxml versions)
     try:
         from lxml import etree as _etree
+
         if not hasattr(_etree.XPathElementEvaluator, "evaluate"):
+
             def _evaluate(self, expr, **kwargs):
                 return self.xpath(expr, **kwargs)
 
@@ -46,10 +49,15 @@ def ensure_oxomoc_import():
         pass
 
 
-def run_endpoint(endpoint_name: str, mongodb_uri: str = "mongodb://localhost:27017/", mongo_db: str = "oxomoc_colombia", jobs: int | None = None):
+def run_endpoint(
+    endpoint_name: str,
+    mongodb_uri: str = "mongodb://localhost:27017/",
+    mongo_db: str = "oxomoc_colombia",
+    jobs: int | None = None,
+):
     """Task function: create checkpoint if needed and harvest the endpoint."""
     ensure_oxomoc_import()
-    from oxomoc.checkpoint import OxomocCheckPoint
+    # Import inside function to avoid hard import-time dependency for CI/static tools
     from oxomoc.harvester import OxomocHarvester
 
     endpoints = load_config()
@@ -59,18 +67,20 @@ def run_endpoint(endpoint_name: str, mongodb_uri: str = "mongodb://localhost:270
     endpoint_cfg = endpoints[endpoint_name]
 
     # instantiate harvester with only this endpoint (assumes checkpoint exists)
-    harvester = OxomocHarvester({endpoint_name: endpoint_cfg}, mongo_db=mongo_db, mongodb_uri=mongodb_uri)
+    harvester = OxomocHarvester(
+        {endpoint_name: endpoint_cfg}, mongo_db=mongo_db, mongodb_uri=mongodb_uri
+    )
     harvester.run(jobs=jobs)
 
 
-def create_checkpoint(endpoint_name: str, mongodb_uri: str = "mongodb://localhost:27017/", mongo_db: str = "oxomoc_colombia"):
+def create_checkpoint(
+    endpoint_name: str,
+    mongodb_uri: str = "mongodb://localhost:27017/",
+    mongo_db: str = "oxomoc_colombia",
+):
     """Create or update the checkpoint for a given endpoint using oxomoc checkpoint classes."""
     ensure_oxomoc_import()
     from oxomoc.checkpoint import OxomocCheckPoint
-    try:
-        from oxomoc.ckpselective import OxomocCheckPointSelective
-    except Exception:
-        OxomocCheckPointSelective = None
 
     endpoints = load_config()
     if endpoint_name not in endpoints:
@@ -83,23 +93,11 @@ def create_checkpoint(endpoint_name: str, mongodb_uri: str = "mongodb://localhos
         # nothing to do
         return
 
-    selective = ckp_cfg.get("selective", False)
-    if selective and OxomocCheckPointSelective is not None:
-        ckp = OxomocCheckPointSelective(mongodb_uri)
-    else:
-        ckp = OxomocCheckPoint(mongodb_uri)
+    ckp = OxomocCheckPoint(mongodb_uri)
 
     metadata = cfg.get("metadataPrefix", "oai_dc")
-    if selective and ckp_cfg.get("days") and hasattr(ckp, "create"):
-        days = ckp_cfg.get("days")
-        # selective create signature includes days
-        try:
-            ckp.create(cfg["url"], mongo_db, endpoint_name, metadata, True, days)
-        except TypeError:
-            # fallback to non-selective create
-            ckp.create(cfg["url"], mongo_db, endpoint_name, metadata)
-    else:
-        ckp.create(cfg["url"], mongo_db, endpoint_name, metadata)
+    # Always call the non-selective create signature; selective mode removed.
+    ckp.create(cfg["url"], mongo_db, endpoint_name, metadata)
 
 
 default_args = {
@@ -117,7 +115,6 @@ with DAG(
     start_date=datetime(2026, 1, 1),
     catchup=False,
 ) as dag:
-
     endpoints = load_config()
 
     for name, cfg in endpoints.items():
