@@ -19,6 +19,7 @@ dependencies = [
     "pymongo>=4.15.5",
     "pandas>=2.1.4",
     "requests>=2.32.5",
+    "oxomoc @ git+https://github.com/colav/oxomoc.git@main",
 ]
 
 [build-system]
@@ -71,6 +72,8 @@ module = [
     "pandas.*",
     "pymongo.*",
     "requests.*",
+    "oxomoc.*",
+    "lxml.*",
     "pytest.*",
     "mongomock.*",
 ]
