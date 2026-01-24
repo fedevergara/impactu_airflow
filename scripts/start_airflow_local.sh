@@ -7,7 +7,8 @@ set -euo pipefail
 # Usage: ./scripts/start_airflow_local.sh
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AIRFLOW_HOME="${AIRFLOW_HOME:-$REPO_ROOT/.airflow}"
+# Use repo root as default AIRFLOW_HOME so Airflow reads DAGs directly from repo
+AIRFLOW_HOME="${AIRFLOW_HOME:-$REPO_ROOT}"
 export AIRFLOW_HOME
 export AIRFLOW__CORE__LOAD_EXAMPLES="False"
 PORT="${AIRFLOW_PORT:-8080}"
