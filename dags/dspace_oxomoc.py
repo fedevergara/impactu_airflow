@@ -114,6 +114,7 @@ with DAG(
     schedule="@weekly",
     start_date=datetime(2026, 1, 1),
     catchup=False,
+    is_paused_upon_creation=True,
 ) as dag:
     endpoints = load_config()
 
