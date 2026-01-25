@@ -7,6 +7,7 @@ into MongoDB `ror` database, collection `ror_stage` by default.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import io
 import json
 import logging
@@ -35,7 +36,15 @@ def _find_latest_ror_file(files: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-def download_ror_to_path(record_id: int = 18260365) -> str:
+def _compute_file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def download_ror_to_path(record_id: int = 18260365) -> dict[str, Any]:
     api_url = f"https://zenodo.org/api/records/{record_id}"
     log.info("Fetching Zenodo record %s", record_id)
     res = requests.get(api_url, timeout=30)
@@ -51,9 +60,7 @@ def download_ror_to_path(record_id: int = 18260365) -> str:
     if not download_url:
         raise RuntimeError(f"No download link for file {file_entry}")
 
-    log.info("Downloading %s", download_url)
-    dl = requests.get(download_url, timeout=120)
-    dl.raise_for_status()
+    # defer actual download until we decide based on cache
 
     filename = file_entry.get("key", f"ror-{record_id}")
 
@@ -61,19 +68,78 @@ def download_ror_to_path(record_id: int = 18260365) -> str:
     dest_dir = os.path.join(airflow_home, "ror_import", str(record_id))
     os.makedirs(dest_dir, exist_ok=True)
     dest_path = os.path.join(dest_dir, filename)
+
+    # decide whether to download: if file exists, compare checksum or size
+    already_present = os.path.exists(dest_path)
+    remote_checksum = file_entry.get("checksum")
+    remote_size = file_entry.get("size")
+    if already_present:
+        try:
+            if remote_checksum:
+                # normalize checksum (may be prefixed like "sha256:<hex>")
+                expected = remote_checksum.split(":")[-1]
+                local_hash = _compute_file_sha256(dest_path)
+                if local_hash == expected:
+                    log.info(
+                        "Cached ROR file matches remote (checksum); skipping download: %s",
+                        dest_path,
+                    )
+                    return {"file_path": dest_path, "is_new": False}
+            elif remote_size is not None:
+                if os.path.getsize(dest_path) == int(remote_size):
+                    log.info(
+                        "Cached ROR file matches remote (size); skipping download: %s", dest_path
+                    )
+                    return {"file_path": dest_path, "is_new": False}
+        except Exception:
+            # on any check error, fall back to re-download
+            log.warning("Failed to validate cached file; will re-download %s", dest_path)
+
+    # perform download
+    log.info("Downloading %s", download_url)
+    dl = requests.get(download_url, timeout=120)
+    dl.raise_for_status()
+
     with open(dest_path, "wb") as fh:
         fh.write(dl.content)
 
     log.info("Saved file to %s", dest_path)
-    return dest_path
+    return {"file_path": dest_path, "is_new": True}
+
+
+def _copy_db(client, src_db_name: str, dst_db_name: str) -> None:
+    src_db = client[src_db_name]
+    dst_db = client[dst_db_name]
+    for coll_name in src_db.list_collection_names():
+        src_coll = src_db[coll_name]
+        dst_coll = dst_db[coll_name]
+        batch = []
+        for doc in src_coll.find({}):
+            # remove _id to avoid duplicate key problems when copying
+            if "_id" in doc:
+                doc.pop("_id")
+            batch.append(doc)
+            if len(batch) >= 1000:
+                dst_coll.insert_many(batch)
+                batch.clear()
+        if batch:
+            dst_coll.insert_many(batch)
 
 
 def load_ror_from_path(
-    file_path: str,
+    file_info: dict | str,
     mongo_conn_id: str = "mongodb_default",
     db_name: str | None = None,
     collection_name: str = "ror_stage",
 ) -> int:
+    """file_info may be a dict returned by download_ror_to_path or a plain path string."""
+    if isinstance(file_info, dict):
+        file_path = file_info.get("file_path")
+        is_new = bool(file_info.get("is_new"))
+    else:
+        file_path = file_info
+        is_new = True
+
     if not file_path or str(file_path).lower() == "none":
         airflow_home = os.environ.get("AIRFLOW_HOME", os.getcwd())
         base = os.path.join(airflow_home, "ror_import")
@@ -110,8 +176,13 @@ def load_ror_from_path(
         with gzip.open(file_path, "rt", encoding="utf-8") as fh:
             data = json.load(fh)
     else:
-        with open(file_path, "rt", encoding="utf-8") as fh:
+        with open(file_path, encoding="utf-8") as fh:
             data = json.load(fh)
+
+    # if file not new, skip loading
+    if not is_new:
+        log.info("No new ROR file; skipping DB load for %s", file_path)
+        return 0
 
     hook = MongoHook(mongo_conn_id=mongo_conn_id)
     client = hook.get_conn()
@@ -122,14 +193,23 @@ def load_ror_from_path(
             raise ValueError(
                 "MongoDB database not provided. Set `db_name` in the DAG params or provide it in the connection schema."
             )
+    # move existing DB to new name with year and month
+    now = datetime.utcnow()
+    suffix = now.strftime("%Y%m")
+    archived_db_name = f"{db_name}_{suffix}"
+    # if source DB exists and has collections, copy then drop
+    if db_name in client.list_database_names():
+        src_db = client[db_name]
+        if src_db.list_collection_names():
+            log.info("Archiving existing DB %s -> %s", db_name, archived_db_name)
+            _copy_db(client, db_name, archived_db_name)
+            client.drop_database(db_name)
+
     db = client[db_name]
     coll = db[collection_name]
 
     if isinstance(data, dict):
-        if "items" in data and isinstance(data["items"], list):
-            docs = data["items"]
-        else:
-            docs = [data]
+        docs = data["items"] if "items" in data and isinstance(data["items"], list) else [data]
     elif isinstance(data, list):
         docs = data
     else:
@@ -171,6 +251,7 @@ with DAG(
     catchup=False,
     tags=["ror", "import"],
     params={"mongo_conn_id": "mongodb_default", "mongo_db": "ror"},
+    is_paused_upon_creation=True,
 ) as dag:
     download_task = PythonOperator(
         task_id="download_ror",
@@ -183,7 +264,7 @@ with DAG(
         task_id="load_ror",
         python_callable=load_ror_from_path,
         op_kwargs={
-            "file_path": "{{ ti.xcom_pull(task_ids='download_ror') }}",
+            "file_info": "{{ ti.xcom_pull(task_ids='download_ror') }}",
             "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "db_name": "{{ params.mongo_db }}",
             "collection_name": "ror_stage",
