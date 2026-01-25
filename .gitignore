@@ -217,3 +217,9 @@ cache/
 logs/
 .venv/
 .env
+
+# Local Airflow DB and generated artifacts
+airflow.db
+airflow.db-*
+.airflow/
+ror_import/
