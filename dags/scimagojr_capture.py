@@ -1,5 +1,6 @@
 """ScimagoJR data extraction DAG (renamed to scimagojr_capture)."""
 
+import os
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -7,7 +8,9 @@ from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import Param
 
-from extract.scimagojr.scimagojr_extractor import ScimagoJRExtractor
+# Note: import `ScimagoJRExtractor` inside the task to avoid import-time
+# side-effects when Airflow parses DAGs. This prevents module-level
+# filesystem changes from triggering linter errors during import.
 
 default_args = {
     "owner": "impactu",
@@ -44,7 +47,13 @@ def run_extraction_by_year(
                 "MongoDB database not provided. Set `mongo_db` in DAG params or provide it in the connection schema."
             )
 
-    extractor = ScimagoJRExtractor("", mongo_db, client=client)
+    # Import extractor here to avoid module-level import side-effects
+    from extract.scimagojr.scimagojr_extractor import ScimagoJRExtractor
+
+    # Use AIRFLOW_HOME for cache directory to avoid writing to /opt/airflow
+    airflow_home = os.environ.get("AIRFLOW_HOME", os.getcwd())
+    cache_dir = os.path.join(airflow_home, "cache", "scimagojr")
+    extractor = ScimagoJRExtractor("", mongo_db, client=client, cache_dir=cache_dir)
     try:
         extractor.process_year(year, force_redownload=force_redownload, chunk_size=chunk_size)
     finally:

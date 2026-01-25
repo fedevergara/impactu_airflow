@@ -6,6 +6,7 @@ into MongoDB `ror` database, collection `ror_stage` by default.
 
 from __future__ import annotations
 
+import ast
 import gzip
 import hashlib
 import io
@@ -47,7 +48,21 @@ def _compute_file_sha256(path: str) -> str:
 def download_ror_to_path(record_id: int = 18260365) -> dict[str, Any]:
     api_url = f"https://zenodo.org/api/records/{record_id}"
     log.info("Fetching Zenodo record %s", record_id)
-    res = requests.get(api_url, timeout=30)
+
+    # Use a requests Session with retries for transient HTTP errors
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    session = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST"),
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
+    res = session.get(api_url, timeout=30)
     res.raise_for_status()
     record = res.json()
     files = record.get("files", [])
@@ -95,9 +110,9 @@ def download_ror_to_path(record_id: int = 18260365) -> dict[str, Any]:
             # on any check error, fall back to re-download
             log.warning("Failed to validate cached file; will re-download %s", dest_path)
 
-    # perform download
+    # perform download with retrying session
     log.info("Downloading %s", download_url)
-    dl = requests.get(download_url, timeout=120)
+    dl = session.get(download_url, timeout=120)
     dl.raise_for_status()
 
     with open(dest_path, "wb") as fh:
@@ -127,12 +142,29 @@ def _copy_db(client, src_db_name: str, dst_db_name: str) -> None:
 
 
 def load_ror_from_path(
-    file_info: dict | str,
+    file_info: dict | list | str,
     mongo_conn_id: str = "mongodb_default",
     db_name: str | None = None,
     collection_name: str = "ror_stage",
 ) -> int:
     """file_info may be a dict returned by download_ror_to_path or a plain path string."""
+    # Coerce templated XCom string representations back to dict when needed
+    if isinstance(file_info, str):
+        s = file_info.strip()
+        if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+            parsed = None
+            try:
+                parsed = ast.literal_eval(s)
+            except Exception:
+                parsed = None
+            if parsed is None:
+                try:
+                    parsed = json.loads(s)
+                except Exception:
+                    parsed = None
+            if isinstance(parsed, dict | list):
+                file_info = parsed
+
     if isinstance(file_info, dict):
         file_path = file_info.get("file_path")
         is_new = bool(file_info.get("is_new"))

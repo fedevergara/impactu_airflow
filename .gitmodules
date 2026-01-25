@@ -1,0 +1,3 @@
+[submodule "deps/Yuku"]
+	path = deps/Yuku
+	url = https://github.com/colav/Yuku.git
