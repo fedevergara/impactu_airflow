@@ -13,20 +13,6 @@ export AIRFLOW_HOME
 export AIRFLOW__CORE__LOAD_EXAMPLES="False"
 PORT="${AIRFLOW_PORT:-8080}"
 
-# Optional: open Google Scholar in English and exit (for quick UI language checks)
-if [ "${OPEN_GOOGLE_SCHOLAR:-false}" = "true" ]; then
-  echo "Opening Google Scholar (English)..."
-  if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "https://scholar.google.com/?hl=en" >/dev/null 2>&1 || true
-  elif command -v open >/dev/null 2>&1; then
-    open "https://scholar.google.com/?hl=en" >/dev/null 2>&1 || true
-  else
-    # Fallback to python webbrowser module
-    python -m webbrowser "https://scholar.google.com/?hl=en" >/dev/null 2>&1 || true
-  fi
-  exit 0
-fi
-
 mkdir -p "$AIRFLOW_HOME"
 mkdir -p "$AIRFLOW_HOME/logs"
 
