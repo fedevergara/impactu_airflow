@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import sys
 from datetime import datetime, timedelta
@@ -67,10 +68,38 @@ def run_endpoint(
         hook = MongoHook(mongo_conn_id=mongo_conn_id)
         # get_conn() returns a pymongo.MongoClient; hook.connection exposes Airflow Connection
         conn = getattr(hook, "connection", None)
+        uri = None
         try:
-            mongodb_uri = conn.get_uri() if conn and hasattr(conn, "get_uri") else mongodb_uri
+            if conn and hasattr(conn, "get_uri"):
+                uri = conn.get_uri()
         except Exception:
-            mongodb_uri = mongodb_uri
+            uri = None
+
+        # Normalize common alternate schemes to what pymongo expects
+        if isinstance(uri, str):
+            if uri.startswith("mongo+srv://"):
+                uri = uri.replace("mongo+srv://", "mongodb+srv://", 1)
+            elif uri.startswith("mongo://"):
+                uri = uri.replace("mongo://", "mongodb://", 1)
+
+        # If URI not available, build from host/port/login/password/schema
+        if not uri and conn:
+            host = getattr(conn, "host", None)
+            port = getattr(conn, "port", None)
+            login = getattr(conn, "login", None)
+            password = getattr(conn, "password", None)
+            schema = getattr(conn, "schema", None)
+            if host:
+                creds = (f"{login}:{password}@" if password else f"{login}@") if login else ""
+                uri = f"mongodb://{creds}{host}"
+                if port:
+                    uri += f":{port}"
+                if schema:
+                    uri += f"/{schema}"
+
+        # Fallback to existing mongodb_uri value (may be None)
+        mongodb_uri = uri or mongodb_uri
+
         if mongo_db is None:
             mongo_db = getattr(conn, "schema", None)
             if not mongo_db:
@@ -105,10 +134,36 @@ def create_checkpoint(
     if mongo_conn_id and (mongodb_uri is None or mongo_db is None):
         hook = MongoHook(mongo_conn_id=mongo_conn_id)
         conn = getattr(hook, "connection", None)
+        uri = None
         try:
-            mongodb_uri = conn.get_uri() if conn and hasattr(conn, "get_uri") else mongodb_uri
+            if conn and hasattr(conn, "get_uri"):
+                uri = conn.get_uri()
         except Exception:
-            mongodb_uri = mongodb_uri
+            uri = None
+
+        # Normalize common alternate schemes
+        if isinstance(uri, str):
+            if uri.startswith("mongo+srv://"):
+                uri = uri.replace("mongo+srv://", "mongodb+srv://", 1)
+            elif uri.startswith("mongo://"):
+                uri = uri.replace("mongo://", "mongodb://", 1)
+
+        if not uri and conn:
+            host = getattr(conn, "host", None)
+            port = getattr(conn, "port", None)
+            login = getattr(conn, "login", None)
+            password = getattr(conn, "password", None)
+            schema = getattr(conn, "schema", None)
+            if host:
+                creds = (f"{login}:{password}@" if password else f"{login}@") if login else ""
+                uri = f"mongodb://{creds}{host}"
+                if port:
+                    uri += f":{port}"
+                if schema:
+                    uri += f"/{schema}"
+
+        mongodb_uri = uri or mongodb_uri
+
         if mongo_db is None:
             mongo_db = getattr(conn, "schema", None)
             if not mongo_db:
@@ -127,6 +182,9 @@ def create_checkpoint(
         # nothing to do
         return
 
+    # Log resolved MongoDB URI for debugging
+    log = logging.getLogger(__name__)
+    log.info("Resolved MongoDB URI for checkpoint: %s", repr(mongodb_uri))
     ckp = OxomocCheckPoint(mongodb_uri)
 
     metadata = cfg.get("metadataPrefix", "oai_dc")
