@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any
@@ -35,6 +36,7 @@ DEFAULTS = {
     "max_missing_streak": 200,
     "max_index": None,
 }
+DEFAULTS["publindex_id"] = "mwmn-inyg"
 
 
 def _import_yuku():
@@ -55,7 +57,9 @@ def _make_yuku_instance(mongo_conn_id: str, mongo_db: str, mongodb_uri: str | No
     return ycls(mongo_db=mongo_db, mongodb_uri=mongodb_uri)
 
 
-def download_publindex_national(mongo_conn_id: str, mongo_db: str, **_kwargs: Any) -> None:
+def download_publindex_national(
+    mongo_conn_id: str, mongo_db: str, publindex_id: str = "mwmn-inyg", **_kwargs: Any
+) -> None:
     """Call Yuku to download national Publindex journals.
 
     The Yuku API used here is best-effort: it will try `download_publindex_national`
@@ -106,8 +110,8 @@ def download_publindex_national(mongo_conn_id: str, mongo_db: str, **_kwargs: An
         return
 
     try:
-        log.info("Calling Yuku.download('mwmn-inyg','publindex') to fetch national Publindex")
-        y.download("mwmn-inyg", "publindex")
+        log.info("Calling Yuku.download(%s,'publindex') to fetch national Publindex", publindex_id)
+        y.download(publindex_id, "publindex")
         log.info("Yuku.download finished")
         return
     except Exception:
@@ -136,6 +140,15 @@ def download_publindex_international(
         max_missing_streak = int(max_missing_streak)
     except Exception:
         max_missing_streak = 20
+    # Normalize max_index which may be templated as string 'None'
+    if isinstance(max_index, str):
+        if max_index.lower() in ("none", "null", ""):
+            max_index = None
+        else:
+            try:
+                max_index = int(max_index)
+            except Exception:
+                max_index = None
 
     session = requests.Session()
     hook = MongoHook(mongo_conn_id=mongo_conn_id)
@@ -180,10 +193,87 @@ def download_publindex_international(
                 idx += 1
                 continue
 
+            # API sometimes returns a list; handle both list and dict
+            if isinstance(data, list):
+                if len(data) == 0:
+                    missing += 1
+                    if missing >= max_missing_streak:
+                        break
+                    idx += 1
+                    continue
+                data_item = data[0]
+            elif isinstance(data, dict):
+                data_item = data
+            else:
+                # unexpected type
+                missing += 1
+                if missing >= max_missing_streak:
+                    break
+                idx += 1
+                continue
+
             # Upsert by id if present, else insert
-            rec_id = data.get("id") or data.get("codigo") or idx
+            rec_id = data_item.get("id") if isinstance(data_item, dict) else None
+            if rec_id is None:
+                rec_id = data_item.get("codigo") if isinstance(data_item, dict) else None
+            if rec_id is None:
+                rec_id = idx
+            # Normalize ISSNs: ensure `issns` is a list of strings
             try:
-                coll.replace_one({"_id": rec_id}, data, upsert=True)
+                issns = None
+                # common keys where ISSN info may appear
+                for key in (
+                    "issns",
+                    "issn",
+                    "issnPrint",
+                    "issnElectronico",
+                    "issn_electronico",
+                    "issn_print",
+                ):
+                    if key in data_item and data_item.get(key):
+                        issns = data_item.get(key)
+                        break
+
+                normalized: list[str] = []
+                if issns is None:
+                    normalized = []
+                elif isinstance(issns, list):
+                    # list of strings or dicts
+                    for v in issns:
+                        if isinstance(v, str):
+                            s = v.strip()
+                            if s:
+                                normalized.append(s)
+                        elif isinstance(v, dict):
+                            # try common subkeys
+                            for sub in ("value", "issn", "codigo", "id"):
+                                if sub in v and isinstance(v[sub], str):
+                                    s = v[sub].strip()
+                                    if s:
+                                        normalized.append(s)
+                                        break
+                elif isinstance(issns, str):
+                    # split on common separators
+                    parts = [p.strip() for p in re.split(r"[,;|/\\]+", issns) if p.strip()]
+                    normalized = parts
+                else:
+                    # fallback: try to stringify
+                    s = str(issns).strip()
+                    normalized = [s] if s else []
+
+                # dedupe while preserving order
+                seen = set()
+                deduped: list[str] = []
+                for v in normalized:
+                    if v not in seen:
+                        seen.add(v)
+                        deduped.append(v)
+                data_item["issns"] = deduped
+            except Exception:
+                logging.exception("Failed to normalize ISSNs for record %s", rec_id)
+
+            try:
+                coll.replace_one({"_id": rec_id}, data_item, upsert=True)
                 inserted += 1
                 log.info("Inserted/updated international id=%s", rec_id)
             except Exception:
@@ -230,6 +320,7 @@ with DAG(
         op_kwargs={
             "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "mongo_db": "{{ params.mongo_db }}",
+            "publindex_id": "{{ params.publindex_id }}",
         },
     )
 
