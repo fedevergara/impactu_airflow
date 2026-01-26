@@ -68,9 +68,11 @@ The `.github/workflows/deploy.yml` file manages the lifecycle:
 - `PYPI_PASSWORD`: PyPI API token for publishing the package.
 - `AIRFLOW_API_TOKEN`: Bearer token for CI to trigger validations on the Development server.
 - `GH_TOKEN_PR_VALIDATOR`: GitHub Token (Personal Access Token) with read permissions for the validator DAG to download PR files.
+- `GDRIVE_TOKEN_PICKLE_B64`: **Base64-encoded** Google Drive credentials pickle used by extractors that read from Drive (e.g., `StaffExtractor`).  
+  **Runtime rule**: the Airflow environment must decode this secret and write it to a file path available to tasks (e.g., `/opt/airflow/keys/drive_token.pickle`). The pickle file must **never** be committed to the repository.
 
 ### Airflow (Runtime)
-- **Variables**: Non-sensitive configurations (e.g., `scimagojr_cache_dir`).
+- **Variables**: Non-sensitive configurations (e.g., `scimagojr_cache_dir`, `staff_cache_dir`, `staff_drive_root_folder_id`).
 - **Connections**: Database credentials (MongoDB, Postgres) and APIs. **Never** hardcode credentials in the code.
 
 ## 6. Monitoring and Maintenance
