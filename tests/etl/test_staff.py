@@ -52,8 +52,7 @@ def test_parse_institution_folder_name(extractor):
     assert ror_id == "03bp5hc83"
     assert inst_name == "Universidad_de_Antioquia"
 
-    ror_id2, inst_name2 = extractor._parse_institution_folder_name(
-        "BadFormatName")
+    ror_id2, inst_name2 = extractor._parse_institution_folder_name("BadFormatName")
     assert ror_id2 is None
     assert inst_name2 == "BadFormatName"
 
@@ -76,8 +75,7 @@ def test_replace_institution_data_deletes_and_inserts(extractor):
             {"_id": "03bp5hc83:oldfile:1", "institution_id": "03bp5hc83", "x": 2},
         ]
     )
-    assert extractor.collection.count_documents(
-        {"institution_id": "03bp5hc83"}) == 2
+    assert extractor.collection.count_documents({"institution_id": "03bp5hc83"}) == 2
 
     file_meta = {
         "id": "newfileid",
@@ -101,8 +99,7 @@ def test_replace_institution_data_deletes_and_inserts(extractor):
     )
 
     # Should now have only the new 3 docs for this institution (old ones deleted)
-    assert extractor.collection.count_documents(
-        {"institution_id": "03bp5hc83"}) == 3
+    assert extractor.collection.count_documents({"institution_id": "03bp5hc83"}) == 3
 
     doc0 = extractor.collection.find_one({"_id": "03bp5hc83:newfileid:0"})
     assert doc0 is not None
@@ -125,12 +122,8 @@ def test_already_loaded(extractor):
         }
     )
 
-    assert extractor._already_loaded(
-        "03bp5hc83", "fileX", "2025-01-01T00:00:00Z"
-    ) is True
-    assert extractor._already_loaded(
-        "03bp5hc83", "fileX", "2025-01-02T00:00:00Z"
-    ) is False
+    assert extractor._already_loaded("03bp5hc83", "fileX", "2025-01-01T00:00:00Z") is True
+    assert extractor._already_loaded("03bp5hc83", "fileX", "2025-01-02T00:00:00Z") is False
 
 
 def test_process_all_institutions_smoke(extractor):
@@ -170,18 +163,20 @@ def test_process_all_institutions_smoke(extractor):
     def fake_already_loaded(institution_id, drive_file_id, drive_modified_time):
         return institution_id == "03bp5hc83" and drive_file_id == "file_latest"
 
-    with patch.object(extractor, "_list_institution_folders", return_value=folders), patch.object(
-        extractor,
-        "_list_staff_excels",
-        side_effect=lambda fid: excels_folder1 if fid == "folder1" else excels_folder2,
-    ), patch.object(
-        extractor, "_download_file_to_cache", return_value="/tmp/fake.xlsx"
-    ), patch.object(
-        extractor,
-        "_read_excel_as_records",
-        return_value=[{"a": "1"}, {"a": "2"}],
-    ), patch.object(
-        extractor, "_already_loaded", side_effect=fake_already_loaded
+    with (
+        patch.object(extractor, "_list_institution_folders", return_value=folders),
+        patch.object(
+            extractor,
+            "_list_staff_excels",
+            side_effect=lambda fid: excels_folder1 if fid == "folder1" else excels_folder2,
+        ),
+        patch.object(extractor, "_download_file_to_cache", return_value="/tmp/fake.xlsx"),
+        patch.object(
+            extractor,
+            "_read_excel_as_records",
+            return_value=[{"a": "1"}, {"a": "2"}],
+        ),
+        patch.object(extractor, "_already_loaded", side_effect=fake_already_loaded),
     ):
         stats = extractor.process_all_institutions(force=False)
 
@@ -191,7 +186,5 @@ def test_process_all_institutions_smoke(extractor):
     assert stats["errors"] == 0
 
     # Only folder2 should have been written
-    assert extractor.collection.count_documents(
-        {"institution_id": "02abcde12"}) == 2
-    assert extractor.collection.count_documents(
-        {"institution_id": "03bp5hc83"}) == 0
+    assert extractor.collection.count_documents({"institution_id": "02abcde12"}) == 2
+    assert extractor.collection.count_documents({"institution_id": "03bp5hc83"}) == 0

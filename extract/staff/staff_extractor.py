@@ -78,8 +78,7 @@ class StaffExtractor(BaseExtractor):
         # _id is already unique; add a few practical indexes:
         self.collection.create_index("institution_id")
         self.collection.create_index("drive_file_id")
-        self.collection.create_index(
-            [("institution_id", 1), ("drive_file_id", 1)])
+        self.collection.create_index([("institution_id", 1), ("drive_file_id", 1)])
         self.collection.create_index("extracted_at")
 
     # Google Drive helpers
@@ -174,8 +173,7 @@ class StaffExtractor(BaseExtractor):
         files = self._list_files(q=q)
 
         # (Optional) prioritize those named staff_...
-        staff_like = [f for f in files if (
-            f.get("name") or "").lower().startswith("staff_")]
+        staff_like = [f for f in files if (f.get("name") or "").lower().startswith("staff_")]
         return staff_like if staff_like else files
 
     @staticmethod
@@ -204,8 +202,7 @@ class StaffExtractor(BaseExtractor):
         request = service.files().get_media(fileId=file_id)
 
         with io.FileIO(local_path, "wb") as fh:
-            downloader = MediaIoBaseDownload(
-                fh, request, chunksize=1024 * 1024)
+            downloader = MediaIoBaseDownload(fh, request, chunksize=1024 * 1024)
             done = False
             while not done:
                 _, done = downloader.next_chunk()
@@ -222,7 +219,9 @@ class StaffExtractor(BaseExtractor):
         df = df.where(pd.notnull(df), None)
         return df.to_dict(orient="records")
 
-    def _already_loaded(self, institution_id: str, drive_file_id: str, drive_modified_time: str) -> bool:
+    def _already_loaded(
+        self, institution_id: str, drive_file_id: str, drive_modified_time: str
+    ) -> bool:
         """
         Avoid reprocessing if we already loaded at least one doc for that fileId+modifiedTime.
 
@@ -258,8 +257,7 @@ class StaffExtractor(BaseExtractor):
         drive_size = file_meta.get("size")
 
         if self.keep_only_latest_per_institution:
-            self.logger.info(
-                f"Deleting previous staff docs for institution {institution_id}...")
+            self.logger.info(f"Deleting previous staff docs for institution {institution_id}...")
             self.collection.delete_many({"institution_id": institution_id})
 
         extracted_at = datetime.now(datetime.UTC).isoformat()
@@ -283,14 +281,12 @@ class StaffExtractor(BaseExtractor):
 
         total = len(ops)
         if total == 0:
-            self.logger.warning(
-                f"No rows found in {drive_file_name} for {institution_id}.")
+            self.logger.warning(f"No rows found in {drive_file_name} for {institution_id}.")
             return
 
-        self.logger.info(
-            f"Writing {total} staff docs for {institution_id} (bulk upsert)...")
+        self.logger.info(f"Writing {total} staff docs for {institution_id} (bulk upsert)...")
         for start in range(0, total, chunk_size):
-            chunk = ops[start: start + chunk_size]
+            chunk = ops[start : start + chunk_size]
             self.collection.bulk_write(chunk, ordered=False)
 
     # Public API
@@ -309,21 +305,17 @@ class StaffExtractor(BaseExtractor):
             Simple processing metrics.
         """
         folders = self._list_institution_folders()
-        self.logger.info(
-            f"Found {len(folders)} institution folders under root.")
+        self.logger.info(f"Found {len(folders)} institution folders under root.")
 
-        stats = {"folders": len(folders), "processed": 0,
-                 "skipped": 0, "empty": 0, "errors": 0}
+        stats = {"folders": len(folders), "processed": 0, "skipped": 0, "empty": 0, "errors": 0}
 
         for folder in folders:
             folder_id = folder["id"]
             folder_name = folder.get("name", "")
-            ror_id, inst_name = self._parse_institution_folder_name(
-                folder_name)
+            ror_id, inst_name = self._parse_institution_folder_name(folder_name)
 
             if not ror_id:
-                self.logger.warning(
-                    f"Skipping folder with unexpected name format: {folder_name}")
+                self.logger.warning(f"Skipping folder with unexpected name format: {folder_name}")
                 stats["skipped"] += 1
                 continue
 
@@ -331,8 +323,7 @@ class StaffExtractor(BaseExtractor):
                 excel_files = self._list_staff_excels(folder_id)
                 latest = self._pick_latest_by_modified_time(excel_files)
                 if not latest:
-                    self.logger.warning(
-                        f"No excel files found in {folder_name}")
+                    self.logger.warning(f"No excel files found in {folder_name}")
                     stats["empty"] += 1
                     continue
 
@@ -341,15 +332,18 @@ class StaffExtractor(BaseExtractor):
 
                 if not force and self._already_loaded(ror_id, drive_file_id, drive_modified_time):
                     self.logger.info(
-                        f"[SKIP] {ror_id} latest file already loaded: {latest.get('name')}")
+                        f"[SKIP] {ror_id} latest file already loaded: {latest.get('name')}"
+                    )
                     stats["skipped"] += 1
                     continue
 
                 self.logger.info(
-                    f"[{ror_id}] Latest staff file: {latest.get('name')} ({drive_modified_time})")
+                    f"[{ror_id}] Latest staff file: {latest.get('name')} ({drive_modified_time})"
+                )
 
                 local_path = self._download_file_to_cache(
-                    drive_file_id, latest.get("name", "staff.xlsx"))
+                    drive_file_id, latest.get("name", "staff.xlsx")
+                )
                 records = self._read_excel_as_records(local_path)
 
                 self._replace_institution_data(
@@ -365,16 +359,17 @@ class StaffExtractor(BaseExtractor):
                 with contextlib.suppress(Exception):
                     self.save_checkpoint(
                         f"staff_{ror_id}",
-                        {"drive_file_id": drive_file_id,
-                            "drive_modified_time": drive_modified_time}
+                        {
+                            "drive_file_id": drive_file_id,
+                            "drive_modified_time": drive_modified_time,
+                        },
                     )
 
                 # Small courtesy delay
                 time.sleep(0.1)
 
             except Exception as e:
-                self.logger.error(
-                    f"Error processing folder {folder_name}: {e}")
+                self.logger.error(f"Error processing folder {folder_name}: {e}")
                 stats["errors"] += 1
 
         return stats
