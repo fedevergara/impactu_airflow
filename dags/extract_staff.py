@@ -37,8 +37,7 @@ def run_staff_extraction(**kwargs: dict) -> None:
     cache_dir = params.get("cache_dir", "/opt/airflow/cache/staff")
 
     force = params.get("force", False)
-    keep_only_latest_per_institution = params.get(
-        "keep_only_latest_per_institution", True)
+    keep_only_latest_per_institution = params.get("keep_only_latest_per_institution", True)
 
     if not drive_root_folder_id:
         raise ValueError("Missing required param: drive_root_folder_id")
