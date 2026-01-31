@@ -21,6 +21,11 @@ if ! command -v airflow >/dev/null 2>&1; then
   exit 1
 fi
 
+# Ensure a local MongoDB connection exists for DAGs that expect `mongodb_default`.
+# This is safe to run multiple times; the command will succeed or be ignored.
+airflow connections add mongodb_default --conn-type mongo --conn-host localhost --conn-port 27017 || \
+  airflow connections add mongodb_default --conn-uri "mongodb://localhost:27017" || true
+
 # Try `airflow standalone` first (available in newer Airflow versions)
 if airflow standalone --help >/dev/null 2>&1; then
   echo "Running 'airflow standalone' (port $PORT). Press Ctrl+C to stop."
