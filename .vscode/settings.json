@@ -1,0 +1,12 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^\\. /home/ozapatam/Projects/Colav/impactu_airflow/\\.venv/bin/activate && ruff check --fix \\. \\|\\| true && ruff check \\. \\|\\| true$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\. /home/ozapatam/Projects/Colav/impactu_airflow/\\.venv/bin/activate && mypy \\. \\|\\| true$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
