@@ -22,7 +22,7 @@ The extractor follows a robust multi-stage process to ensure data integrity and 
     The **latest** file is selected by Google Drive metadata field `modifiedTime`.
 
 3.  **Persistent Caching**  
-    The selected Excel is downloaded and stored in a local cache directory (default: `/opt/airflow/cache/staff`).  
+    The selected Excel is downloaded and stored in a local cache directory (default: `/tmp/impactu_airflow_cache/staff`).  
     This improves reproducibility and makes it easier to debug ingestion runs.
 
 4.  **Raw Excel → JSON Records**
@@ -51,7 +51,7 @@ from extract.staff_extractor import StaffExtractor
 extractor = StaffExtractor(
     mongodb_uri=mongodb_uri,
     db_name=db_name,
-    drive_root_folder_id="1F9djeXUBoE3XbAMhdrV3xc9_VgXOPGcD",
+    drive_root_folder_id="drive_root_folder_id",
     google_token_pickle="/path/to/drive_token.pickle",
 )
 

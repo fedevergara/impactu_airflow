@@ -43,7 +43,7 @@ def test_extractor_initialization(extractor):
 @patch("requests.get")
 def test_fetch_year(mock_get, extractor):
     # Mock CSV response
-    csv_content = "Rank;Sourceid;Title;Type;Issn;SJR;SJR Best Quartile;H index;Total Docs. (2023);Total Docs. (3years);Total Refs.;Total Cites (3years);Citable Docs. (3years);Cites / Doc. (2years);Ref. / Doc.;Country;Region;Publisher;Coverage;Categories\n1;12345;Journal of Tests;journal;12345678;1.5;Q1;50;100;300;5000;1000;280;3.5;50.0;Colombia;Latin America;Test Publisher;2020-2023;Test Category"
+    csv_content = "Rank;Sourceid;Title;Type;Issn;SJR;SJR Best Quartile;H index;Total Docs. (2023);Total Docs. (3years);Total Refs.;Total Cites (3years);Citable Docs. (3years);Cites / Doc. (2years);Ref. / Doc.;Country;Region;Publisher;Coverage;Categories\n1;12345;Journal of Tests;journal;12345678;1.5;Q1;50;100;300;5000;1000;280;3.5;50.0;Colombia;Latin America;Test Publisher;2020-2023;Test Category"  # noqa E501
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -61,7 +61,8 @@ def test_fetch_year(mock_get, extractor):
 
 def test_process_year_differential(extractor):
     # 1. Setup initial data in mock DB
-    initial_record = {"Sourceid": 12345, "year": 2023, "Title": "Old Title", "Rank": 2}
+    initial_record = {"Sourceid": 12345,
+                      "year": 2023, "Title": "Old Title", "Rank": 2}
     extractor.collection.insert_one(initial_record)
 
     # 2. Mock fetch_year to return updated data

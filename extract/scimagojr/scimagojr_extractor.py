@@ -233,7 +233,7 @@ class ScimagoJRExtractor(BaseExtractor):
                 bulk_write_total_time = 0.0
 
                 for i in range(0, total_ops, chunk_size):
-                    chunk = operations[i : i + chunk_size]
+                    chunk = operations[i: i + chunk_size]
                     bw_start = time.time()
                     self.collection.bulk_write(chunk, ordered=False)
                     bw_end = time.time()

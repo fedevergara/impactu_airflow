@@ -6,7 +6,7 @@ from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import Param
 
-from extract.staff.staff_extractor import StaffExtractor
+from extract.ciarp.ciarp_extractor import CiarpExtractor
 
 default_args = {
     "owner": "impactu",
@@ -33,9 +33,9 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     return bool(value)
 
 
-def run_staff_extraction(**kwargs: dict) -> None:
+def run_ciarp_extraction(**kwargs: dict) -> None:
     """
-    Extract staff files from Google Drive and load into MongoDB.
+    Extract CIARP files from Google Drive and load into MongoDB.
 
     Notes
     -----
@@ -50,71 +50,71 @@ def run_staff_extraction(**kwargs: dict) -> None:
                 params[key] = value
 
     drive_root_folder_id = params.get("drive_root_folder_id") or Variable.get(
-        "staff_drive_root_folder_id", default_var=""
+        "ciarp_drive_root_folder_id", default_var=""
     )
     drive_subfolder_name = params.get("drive_subfolder_name") or Variable.get(
-        "staff_drive_subfolder_name", default_var="staff"
+        "ciarp_drive_subfolder_name", default_var="ciarp"
     )
-    dump_dir = params.get("dump_dir") or Variable.get("staff_dump_dir", default_var="")
+    dump_dir = params.get("dump_dir") or Variable.get("ciarp_dump_dir", default_var="")
     google_token_pickle = params.get("google_token_pickle")
-    cache_dir = params.get("cache_dir", "/tmp/impactu_airflow_cache/staff")
+    cache_dir = params.get("cache_dir", "/tmp/impactu_airflow_cache/ciarp")
 
     force = _coerce_bool(params.get("force", False))
     keep_only_latest_per_institution = _coerce_bool(params.get("keep_only_latest_per_institution", True))
+    backup_existing = _coerce_bool(params.get("backup_existing", True))
 
     if not drive_root_folder_id:
         raise ValueError("Missing required param: drive_root_folder_id")
     if not google_token_pickle:
         raise ValueError("Missing required param: google_token_pickle")
 
-    # Use MongoHook to get the connection
     hook = MongoHook(mongo_conn_id="mongodb_default")
     client = hook.get_conn()
     db_name = hook.connection.schema or "institutional"
 
-    extractor = StaffExtractor(
+    extractor = CiarpExtractor(
         mongodb_uri="",
         db_name=db_name,
         drive_root_folder_id=drive_root_folder_id,
         subfolder_name=drive_subfolder_name or None,
         google_token_pickle=google_token_pickle,
-        collection_name="staff",
+        collection_name="ciarp",
         client=client,
         cache_dir=cache_dir,
         keep_only_latest_per_institution=keep_only_latest_per_institution,
+        backup_existing=backup_existing,
     )
 
     try:
-        extractor.dump_collection_if_exists(dump_dir, filename_prefix="staff")
-        stats = extractor.process_all_institutions(force=force)
-        # Airflow log-friendly
-        print(f"Staff extraction finished. Stats: {stats}")
+        extractor.dump_collection_if_exists(dump_dir, filename_prefix="ciarp")
+        stats = extractor.process_all_files(force=force)
+        print(f"CIARP extraction finished. Stats: {stats}")
     finally:
         extractor.close()
 
 
 with DAG(
-    "extract_staff",
+    "extract_ciarp",
     default_args=default_args,
-    description="Extract staff files from Google Drive and load into MongoDB",
-    schedule="0 2 * * 1",
+    description="Extract CIARP files from Google Drive and load into MongoDB",
+    schedule="0 3 * * 1",
     catchup=False,
-    tags=["extract", "staff"],
+    tags=["extract", "ciarp"],
     params={
         "drive_root_folder_id": Param(
             "",
             type="string",
-            description="Google Drive root folder ID containing institution subfolders",
+            description="Google Drive folder ID containing CIARP files",
         ),
         "drive_subfolder_name": Param(
-            "staff",
+            "ciarp",
             type="string",
-            description="Optional subfolder name under drive_root_folder_id (e.g., Staff)",
+            description="Optional subfolder name under drive_root_folder_id (e.g., Ciarp)",
         ),
         "dump_dir": Param(
             "",
             type="string",
-            description="Optional directory for dumping the staff collection before load",
+            description="Optional directory for dumping the ciarp collection before load",
         ),
         "google_token_pickle": Param(
             "",
@@ -122,9 +122,9 @@ with DAG(
             description="Path to Google Drive credentials pickle file (read-only access)",
         ),
         "cache_dir": Param(
-            "/tmp/impactu_airflow_cache/staff",
+            "/tmp/impactu_airflow_cache/ciarp",
             type="string",
-            description="Local cache directory for downloaded staff files",
+            description="Local cache directory for downloaded CIARP files",
         ),
         "force": Param(
             False,
@@ -136,9 +136,14 @@ with DAG(
             type="boolean",
             description="Delete previous docs for each institution before loading the latest file",
         ),
+        "backup_existing": Param(
+            True,
+            type="boolean",
+            description="Create a backup collection before loading if data exists",
+        ),
     },
 ) as dag:
     extract_task = PythonOperator(
-        task_id="staff_extractor",
-        python_callable=run_staff_extraction,
+        task_id="ciarp_extractor",
+        python_callable=run_ciarp_extraction,
     )

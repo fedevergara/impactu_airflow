@@ -7,6 +7,7 @@ import pickle
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
@@ -14,18 +15,24 @@ from google.auth.transport.requests import Request  # type: ignore[import-not-fo
 from googleapiclient.discovery import build  # type: ignore[import-not-found]
 from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-not-found]
 from pymongo import ReplaceOne
-from pathlib import Path
 
 from extract.base_extractor import BaseExtractor
 
-FOLDER_MIME = "application/vnd.google-apps.folder"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 XLS_MIME = "application/vnd.ms-excel"
+FOLDER_MIME = "application/vnd.google-apps.folder"
+
+CIARP_PREFIX = "ciarp_"
+CIARP_DATE_FORMATS = ("%d_%m_%Y_%H:%M", "%Y-%m-%d_%H:%M")
+CIARP_NAME_RE = re.compile(
+    r"^ciarp_(?P<rorid>[^_]+)_(?P<date>\d{2}_\d{2}_\d{4}_\d{2}:\d{2}|\d{4}-\d{2}-\d{2}_\d{2}:\d{2})(?:_.*)?$",
+    re.IGNORECASE,
+)
 
 
-class StaffExtractor(BaseExtractor):
+class CiarpExtractor(BaseExtractor):
     """
-    Extracts raw staff matrices from Google Drive and loads them into MongoDB.
+    Extracts raw CIARP matrices from Google Drive and loads them into MongoDB.
 
     Parameters
     ----------
@@ -34,7 +41,7 @@ class StaffExtractor(BaseExtractor):
     db_name : str
         Database name.
     collection_name : str, optional
-        Collection name (default: "staff").
+        Collection name (default: "ciarp").
     client : pymongo.MongoClient, optional
         Existing MongoDB client instance.
     drive_root_folder_id : str
@@ -42,9 +49,11 @@ class StaffExtractor(BaseExtractor):
     google_token_pickle : str
         Path to the pickle containing Google Drive API credentials.
     cache_dir : str, optional
-        Local directory used to cache downloads (default: "/tmp/impactu_airflow_cache/staff").
+        Local directory used to cache downloads (default: "/opt/airflow/cache/ciarp").
     keep_only_latest_per_institution : bool, optional
         If True, deletes prior docs for the institution before loading the latest Excel (default: True).
+    backup_existing : bool, optional
+        If True, creates a timestamped backup collection before loading (default: True).
     """
 
     def __init__(
@@ -53,27 +62,28 @@ class StaffExtractor(BaseExtractor):
         db_name: str,
         drive_root_folder_id: str,
         google_token_pickle: str,
-        collection_name: str = "staff",
+        collection_name: str = "ciarp",
         client: Any = None,
         cache_dir: str | None = None,
         keep_only_latest_per_institution: bool = True,
+        backup_existing: bool = True,
         subfolder_name: str | None = None,
     ):
         super().__init__(mongodb_uri, db_name, collection_name, client=client)
 
         self.drive_root_folder_id = drive_root_folder_id
         self.google_token_pickle = google_token_pickle
+        self.keep_only_latest_per_institution = keep_only_latest_per_institution
+        self.backup_existing = backup_existing
 
         if cache_dir is None:
             airflow_home = os.environ.get("AIRFLOW_HOME")
             if airflow_home:
-                cache_dir = str(Path(airflow_home) / "cache" / "staff")
+                cache_dir = str(Path(airflow_home) / "cache" / "ciarp")
             else:
-                cache_dir = str(Path.home() / ".cache" / "impactu_airflow" / "staff")
+                cache_dir = str(Path.home() / ".cache" / "impactu_airflow" / "ciarp")
 
         self.cache_dir = cache_dir
-        self.keep_only_latest_per_institution = keep_only_latest_per_institution
-
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
 
         self._drive_service = None
@@ -88,12 +98,49 @@ class StaffExtractor(BaseExtractor):
         """
         Ensure minimal indexes to support faster queries and upserts.
         """
-        self.logger.info("Ensuring indexes for staff collection...")
-        # _id is already unique; add a few practical indexes:
+        self.logger.info("Ensuring indexes for ciarp collection...")
         self.collection.create_index("institution_id")
         self.collection.create_index("drive_file_id")
         self.collection.create_index([("institution_id", 1), ("drive_file_id", 1)])
+        self.collection.create_index("ciarp_file_date")
         self.collection.create_index("extracted_at")
+
+    def _backup_collection_if_needed(self) -> None:
+        """
+        Create a timestamped backup collection if the target collection has data.
+        """
+        if not self.backup_existing:
+            return
+
+        try:
+            existing_count = self.collection.estimated_document_count()
+        except Exception:
+            existing_count = self.collection.count_documents({})
+
+        if existing_count == 0:
+            return
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{self.collection_name}_backup_{timestamp}"
+        self.logger.info(
+            f"Backing up {self.collection_name} -> {backup_name} ({existing_count} docs)..."
+        )
+        try:
+            self.collection.aggregate(
+                [
+                    {"$match": {}},
+                    {
+                        "$merge": {
+                            "into": backup_name,
+                            "whenMatched": "replace",
+                            "whenNotMatched": "insert",
+                        }
+                    },
+                ],
+                allowDiskUse=True,
+            )
+        except Exception as e:
+            self.logger.error(f"Backup failed: {e}")
 
     # Google Drive helpers
     def _get_drive_service(self):
@@ -106,7 +153,6 @@ class StaffExtractor(BaseExtractor):
         with open(self.google_token_pickle, "rb") as f:
             creds = pickle.load(f)
 
-        # Refresh credentials if needed
         if hasattr(creds, "expired") and creds.expired and getattr(creds, "refresh_token", None):
             creds.refresh(Request())
 
@@ -150,13 +196,40 @@ class StaffExtractor(BaseExtractor):
 
     def _list_institution_folders(self) -> list[dict[str, Any]]:
         """
-        list all first-level institution folders under the root folder.
+        List all first-level institution folders under the root folder.
         """
         q = (
             f"'{self.drive_root_folder_id}' in parents "
             f"and mimeType='{FOLDER_MIME}' and trashed=false"
         )
         return self._list_files(q=q)
+
+    def _parse_institution_folder_name(self, folder_name: str) -> tuple[str | None, str]:
+        """
+        Expected folder naming format: RORID_INSTITUTION_NAME
+
+        Returns
+        -------
+        (ror_id, institution_name)
+            ror_id can be None if the format is invalid.
+        """
+        if "_" not in folder_name:
+            return None, folder_name
+
+        ror_id, rest = folder_name.split("_", 1)
+        return ror_id.strip(), rest.strip()
+
+    def _list_ciarp_excels(self, folder_id: str) -> list[dict[str, Any]]:
+        """
+        List Excel files (xlsx/xls) in a given institution folder.
+        """
+        q = (
+            f"'{folder_id}' in parents and trashed=false and ("
+            f"mimeType='{XLSX_MIME}' or mimeType='{XLS_MIME}'"
+            f")"
+        )
+        files = self._list_files(q=q)
+        return [f for f in files if (f.get("name") or "").lower().startswith(CIARP_PREFIX)]
 
     def _resolve_subfolder_id(self, parent_folder_id: str, subfolder_name: str) -> str:
         """
@@ -177,40 +250,37 @@ class StaffExtractor(BaseExtractor):
             f"Subfolder '{subfolder_name}' not found under drive_root_folder_id."
         )
 
-    def _parse_institution_folder_name(self, folder_name: str) -> tuple[str | None, str]:
+    @staticmethod
+    def _parse_ciarp_filename(
+        file_name: str,
+    ) -> tuple[str | None, datetime | None, str | None]:
         """
-        Expected folder naming format: RORID_INSTITUTION_NAME
-
-        Returns
-        -------
-        (ror_id, institution_name)
-            ror_id can be None if the format is invalid.
+        Parse file name: ciarp_RORID_DD_MM_YYYY_HH:MM or ciarp_RORID_YYYY-MM-DD_HH:MM
         """
-        if "_" not in folder_name:
-            return None, folder_name
+        base = Path(file_name).stem
+        match = CIARP_NAME_RE.match(base)
+        if not match:
+            return None, None, None
 
-        ror_id, rest = folder_name.split("_", 1)
-        return ror_id.strip(), rest.strip()
+        ror_id = match.group("rorid").strip()
+        date_raw = match.group("date").strip()
+        parsed_dt = None
+        for fmt in CIARP_DATE_FORMATS:
+            try:
+                parsed_dt = datetime.strptime(date_raw, fmt)
+                break
+            except ValueError:
+                continue
 
-    def _list_staff_excels(self, folder_id: str) -> list[dict[str, Any]]:
-        """
-        list Excel files (xlsx/xls) in a given institution folder.
+        if parsed_dt is None:
+            return ror_id, None, date_raw
 
-        If any file names start with "staff_", prefer those.
-        """
-        q = (
-            f"'{folder_id}' in parents and trashed=false and ("
-            f"mimeType='{XLSX_MIME}' or mimeType='{XLS_MIME}'"
-            f")"
-        )
-        files = self._list_files(q=q)
-
-        # (Optional) prioritize those named staff_...
-        staff_like = [f for f in files if (f.get("name") or "").lower().startswith("staff_")]
-        return staff_like if staff_like else files
+        return ror_id, parsed_dt, date_raw
 
     @staticmethod
-    def _pick_latest_by_modified_time(files: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _pick_latest_by_modified_time(
+        files: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
         """
         Pick the file with the latest modifiedTime (Drive metadata).
         """
@@ -218,7 +288,6 @@ class StaffExtractor(BaseExtractor):
             return None
 
         def key(f: dict[str, Any]) -> str:
-            # ISO 8601 timestamps are lexicographically comparable
             return f.get("modifiedTime") or ""
 
         return max(files, key=key)
@@ -228,7 +297,6 @@ class StaffExtractor(BaseExtractor):
         Download a Drive file into the local cache (overwrites if it exists).
         """
         service = self._get_drive_service()
-
         safe_name = re.sub(r"[^\w\-.]+", "_", file_name)
         local_path = os.path.join(self.cache_dir, f"{file_id}__{safe_name}")
 
@@ -247,8 +315,7 @@ class StaffExtractor(BaseExtractor):
         """
         Read an Excel file into a list of row dicts (raw, no normalization).
         """
-        df = pd.read_excel(local_path, dtype=str)  # keep codes/IDs as strings
-        # Mongo-friendly: NaN -> None
+        df = pd.read_excel(local_path, dtype=str)
         df = df.where(pd.notnull(df), None)
         records = cast(list[dict[str, Any]], df.to_dict(orient="records"))
         return records
@@ -258,8 +325,6 @@ class StaffExtractor(BaseExtractor):
     ) -> bool:
         """
         Avoid reprocessing if we already loaded at least one doc for that fileId+modifiedTime.
-
-        If a file is overwritten in Drive, modifiedTime changes, and we will reprocess.
         """
         return (
             self.collection.find_one(
@@ -280,10 +345,12 @@ class StaffExtractor(BaseExtractor):
         folder_id: str,
         file_meta: dict[str, Any],
         records: list[dict[str, Any]],
+        file_date: datetime | None,
+        file_date_raw: str | None,
         chunk_size: int = 2000,
     ) -> None:
         """
-        Delete and reload the institution's staff data (raw extract only).
+        Delete and reload the institution's CIARP data (raw extract only).
         """
         drive_file_id = file_meta["id"]
         drive_file_name = file_meta.get("name", "")
@@ -291,14 +358,14 @@ class StaffExtractor(BaseExtractor):
         drive_size = file_meta.get("size")
 
         if self.keep_only_latest_per_institution:
-            self.logger.info(f"Deleting previous staff docs for institution {institution_id}...")
+            self.logger.info(f"Deleting previous ciarp docs for institution {institution_id}...")
             self.collection.delete_many({"institution_id": institution_id})
 
-        extracted_at = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+        extracted_at = datetime.now(timezone.utc).isoformat()
+        file_date_iso = file_date.isoformat() if file_date else None
 
         ops: list[ReplaceOne] = []
         for i, row in enumerate(records):
-            # Raw document containing the Excel columns as-is.
             doc = dict(row)
             doc["_id"] = f"{institution_id}:{drive_file_id}:{i}"
             doc["institution_id"] = institution_id
@@ -308,6 +375,8 @@ class StaffExtractor(BaseExtractor):
             doc["drive_file_name"] = drive_file_name
             doc["drive_modified_time"] = drive_modified_time
             doc["drive_file_size"] = drive_size
+            doc["ciarp_file_date"] = file_date_iso
+            doc["ciarp_file_date_raw"] = file_date_raw
             doc["row_number"] = i
             doc["extracted_at"] = extracted_at
 
@@ -318,30 +387,28 @@ class StaffExtractor(BaseExtractor):
             self.logger.warning(f"No rows found in {drive_file_name} for {institution_id}.")
             return
 
-        self.logger.info(f"Writing {total} staff docs for {institution_id} (bulk upsert)...")
+        self.logger.info(f"Writing {total} ciarp docs for {institution_id} (bulk upsert)...")
         for start in range(0, total, chunk_size):
             chunk = ops[start: start + chunk_size]
             self.collection.bulk_write(chunk, ordered=False)
 
     # Public API
-    def process_all_institutions(self, force: bool = False) -> dict[str, Any]:
+    def process_all_files(self, force: bool = False) -> dict[str, Any]:
         """
-        Process all institution subfolders (one per institution).
+        Process all CIARP files inside institution subfolders.
 
         Parameters
         ----------
         force : bool
             If True, reprocess even if the latest file was already loaded.
-
-        Returns
-        -------
-        dict
-            Simple processing metrics.
         """
         folders = self._list_institution_folders()
         self.logger.info(f"Found {len(folders)} institution folders under root.")
 
         stats = {"folders": len(folders), "processed": 0, "skipped": 0, "empty": 0, "errors": 0}
+
+        if folders:
+            self._backup_collection_if_needed()
 
         for folder in folders:
             folder_id = folder["id"]
@@ -354,10 +421,14 @@ class StaffExtractor(BaseExtractor):
                 continue
 
             try:
-                excel_files = self._list_staff_excels(folder_id)
+                excel_files = self._list_ciarp_excels(folder_id)
+                if not excel_files:
+                    self.logger.warning(f"No CIARP excel files found in {folder_name}")
+                    stats["empty"] += 1
+                    continue
+
                 latest = self._pick_latest_by_modified_time(excel_files)
                 if not latest:
-                    self.logger.warning(f"No excel files found in {folder_name}")
                     stats["empty"] += 1
                     continue
 
@@ -371,12 +442,15 @@ class StaffExtractor(BaseExtractor):
                     stats["skipped"] += 1
                     continue
 
+                file_name = latest.get("name", "")
+                _, file_date, file_date_raw = self._parse_ciarp_filename(file_name)
+
                 self.logger.info(
-                    f"[{ror_id}] Latest staff file: {latest.get('name')} ({drive_modified_time})"
+                    f"[{ror_id}] Latest CIARP file: {file_name} ({drive_modified_time})"
                 )
 
                 local_path = self._download_file_to_cache(
-                    drive_file_id, latest.get("name", "staff.xlsx")
+                    drive_file_id, latest.get("name", "ciarp.xlsx")
                 )
                 records = self._read_excel_as_records(local_path)
 
@@ -386,20 +460,20 @@ class StaffExtractor(BaseExtractor):
                     folder_id=folder_id,
                     file_meta=latest,
                     records=records,
+                    file_date=file_date,
+                    file_date_raw=file_date_raw,
                 )
 
                 stats["processed"] += 1
-                # Optional checkpoint
                 with contextlib.suppress(Exception):
                     self.save_checkpoint(
-                        f"staff_{ror_id}",
+                        f"ciarp_{ror_id}",
                         {
                             "drive_file_id": drive_file_id,
                             "drive_modified_time": drive_modified_time,
                         },
                     )
 
-                # Small courtesy delay
                 time.sleep(0.1)
 
             except Exception as e:
@@ -412,4 +486,4 @@ class StaffExtractor(BaseExtractor):
         """
         Entry point, consistent with other extractors.
         """
-        self.process_all_institutions(force=force)
+        self.process_all_files(force=force)
