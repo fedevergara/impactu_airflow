@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
+from airflow import DAG
+from airflow.models import Variable
+from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import Param
 from google.auth.transport.requests import Request  # type: ignore[import-not-found]
 from googleapiclient.discovery import build  # type: ignore[import-not-found]
 from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-not-found]
@@ -28,6 +33,7 @@ CIARP_NAME_RE = re.compile(
     r"^ciarp_(?P<rorid>[^_]+)_(?P<date>\d{2}_\d{2}_\d{4}_\d{2}:\d{2}|\d{4}-\d{2}-\d{2}_\d{2}:\d{2})(?:_.*)?$",
     re.IGNORECASE,
 )
+UTC = getattr(datetime, "UTC", timezone(timedelta(0)))
 
 
 class CiarpExtractor(BaseExtractor):
@@ -120,7 +126,7 @@ class CiarpExtractor(BaseExtractor):
         if existing_count == 0:
             return
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         backup_name = f"{self.collection_name}_backup_{timestamp}"
         self.logger.info(
             f"Backing up {self.collection_name} -> {backup_name} ({existing_count} docs)..."
@@ -361,7 +367,7 @@ class CiarpExtractor(BaseExtractor):
             self.logger.info(f"Deleting previous ciarp docs for institution {institution_id}...")
             self.collection.delete_many({"institution_id": institution_id})
 
-        extracted_at = datetime.now(timezone.utc).isoformat()
+        extracted_at = datetime.now(UTC).isoformat()
         file_date_iso = file_date.isoformat() if file_date else None
 
         ops: list[ReplaceOne] = []
@@ -487,13 +493,6 @@ class CiarpExtractor(BaseExtractor):
         Entry point, consistent with other extractors.
         """
         self.process_all_files(force=force)
-
-
-from airflow import DAG
-from airflow.models import Variable
-from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.providers.standard.operators.python import PythonOperator
-from airflow.sdk import Param
 
 default_args = {
     "owner": "impactu",

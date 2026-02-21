@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
+from airflow import DAG
+from airflow.models import Variable
+from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import Param
 from google.auth.transport.requests import Request  # type: ignore[import-not-found]
 from googleapiclient.discovery import build  # type: ignore[import-not-found]
 from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-not-found]
@@ -413,13 +418,6 @@ class StaffExtractor(BaseExtractor):
         Entry point, consistent with other extractors.
         """
         self.process_all_institutions(force=force)
-
-
-from airflow import DAG
-from airflow.models import Variable
-from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.providers.standard.operators.python import PythonOperator
-from airflow.sdk import Param
 
 default_args = {
     "owner": "impactu",

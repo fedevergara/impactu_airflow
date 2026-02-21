@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import tarfile
 import time
+from collections.abc import Generator, Iterable
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from pathlib import Path
-from typing import Any, Generator, Iterable
+from typing import Any
 
 import requests
+from airflow import DAG
+from airflow.models import Variable
+from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import Param
 from pymongo import UpdateOne
 
 from extract.base_extractor import BaseExtractor
+
+UTC = getattr(datetime, "UTC", timezone(timedelta(0)))
 
 
 class DoajExtractor(BaseExtractor):
@@ -89,7 +98,7 @@ class DoajExtractor(BaseExtractor):
         stats: dict[str, Any] = {
             "journals": None,
             "articles": None,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
 
         if download_journals:
@@ -108,7 +117,7 @@ class DoajExtractor(BaseExtractor):
                 force_download=force_download,
             )
 
-        stats["finished_at"] = datetime.now(timezone.utc).isoformat()
+        stats["finished_at"] = datetime.now(UTC).isoformat()
         return stats
 
     def process_dump(
@@ -200,10 +209,8 @@ class DoajExtractor(BaseExtractor):
             except Exception as exc:
                 self.logger.warning("Download failed (attempt %s): %s", attempt, exc)
                 if os.path.exists(tmp_path):
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(tmp_path)
-                    except OSError:
-                        pass
 
         raise RuntimeError(f"Failed to download DOAJ {dump_type} dump after retries")
 
@@ -286,7 +293,7 @@ class DoajExtractor(BaseExtractor):
         if not source_id:
             return None
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         doc = record.copy()
         doc.update(derived)
         doc["record_type"] = dump_type
@@ -385,7 +392,7 @@ class DoajExtractor(BaseExtractor):
                 yield data
 
         # Try NDJSON first
-        with open(file_path, "r", encoding="utf-8") as handle:
+        with open(file_path, encoding="utf-8") as handle:
             first_line = ""
             while True:
                 line = handle.readline()
@@ -441,7 +448,7 @@ class DoajExtractor(BaseExtractor):
                         return
 
         # Fallback to full JSON load
-        with open(file_path, "r", encoding="utf-8") as handle:
+        with open(file_path, encoding="utf-8") as handle:
             data = json.load(handle)
             yield from _yield_from_loaded(data)
 
@@ -484,14 +491,6 @@ class DoajExtractor(BaseExtractor):
             except OSError:
                 self.logger.warning("Failed to clean up %s", path)
 
-
-from airflow import DAG
-from airflow.models import Variable
-from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.providers.standard.operators.python import PythonOperator
-from airflow.sdk import Param
-
-
 def _compute_period(date_value: datetime) -> tuple[int, int]:
     month = date_value.month
     semester = 1 if month <= 6 else 2
@@ -530,7 +529,7 @@ def run_doaj_capture(**kwargs: dict) -> None:
     else:
         logical_date = (
             kwargs.get("data_interval_start") or kwargs.get(
-                "logical_date") or kwargs.get("execution_date") or datetime.now(timezone.utc)
+                "logical_date") or kwargs.get("execution_date") or datetime.now(UTC)
         )
         year, semester = _compute_period(logical_date)
 

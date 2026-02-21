@@ -3,13 +3,15 @@
 import logging
 import os
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from bson import BSON
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
+
+UTC = getattr(datetime, "UTC", timezone(timedelta(0)))
 
 
 class BaseExtractor(ABC):
@@ -137,7 +139,7 @@ class BaseExtractor(ABC):
                 return None
 
             Path(dump_dir).mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             prefix = filename_prefix or self.collection_name
             file_path = os.path.join(dump_dir, f"{prefix}_{timestamp}.bson")
 
