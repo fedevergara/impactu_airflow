@@ -70,10 +70,15 @@ warn_no_return = true
 [[tool.mypy.overrides]]
 module = [
     "airflow.*",
+    "bson.*",
+    "google.*",
+    "googleapiclient.*",
+    "urllib3.*",
     "pandas.*",
     "pymongo.*",
     "requests.*",
     "oxomoc.*",
+    "yuku.*",
     "lxml.*",
     "pytest.*",
     "mongomock.*",

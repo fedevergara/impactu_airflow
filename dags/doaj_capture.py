@@ -79,7 +79,7 @@ class DoajExtractor(BaseExtractor):
         }
 
     # ---------- Public API ----------
-    def run(
+    def run(  # type: ignore[override]
         self,
         api_key: str | None = None,
         download_journals: bool = True,
@@ -137,7 +137,7 @@ class DoajExtractor(BaseExtractor):
         tar_path = self.download_dump(dump_type, api_key, force_download=force_download)
         extract_dir = self.extract_tar(tar_path)
 
-        counts = {
+        counts: dict[str, Any] = {
             "files": 0,
             "records": 0,
             "upserted": 0,
@@ -331,8 +331,8 @@ class DoajExtractor(BaseExtractor):
                 source_id = f"doaj:{doaj_id}"
             elif pissn or eissn or issn_list:
                 parts = [pissn, eissn] + list(issn_list)
-                parts = [p for p in parts if p]
-                source_id = f"issn:{'|'.join(parts)}"
+                joined_parts: list[str] = [str(p) for p in parts if p not in (None, "")]
+                source_id = f"issn:{'|'.join(joined_parts)}"
 
         if source_id is None:
             # Fallback to a stable hash if we truly have no identifier
@@ -497,7 +497,7 @@ def _compute_period(date_value: datetime) -> tuple[int, int]:
     return date_value.year, semester
 
 
-def run_doaj_capture(**kwargs: dict) -> None:
+def run_doaj_capture(**kwargs: Any) -> None:
     params = kwargs.get("params", {})
 
     api_key = params.get("api_key") or Variable.get("doaj_api_key", default_var="")

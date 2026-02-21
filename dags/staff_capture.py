@@ -16,9 +16,9 @@ from airflow.models import Variable
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import Param
-from google.auth.transport.requests import Request  # type: ignore[import-not-found]
-from googleapiclient.discovery import build  # type: ignore[import-not-found]
-from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-not-found]
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 from pymongo import ReplaceOne
 
 from extract.base_extractor import BaseExtractor
@@ -173,7 +173,7 @@ class StaffExtractor(BaseExtractor):
         for folder in folders:
             name = (folder.get("name") or "").strip().lower()
             if name == target:
-                return folder["id"]
+                return str(folder["id"])
 
         raise ValueError(f"Subfolder '{subfolder_name}' not found under drive_root_folder_id.")
 
@@ -408,7 +408,7 @@ class StaffExtractor(BaseExtractor):
 
         return stats
 
-    def run(self, force: bool = False) -> None:
+    def run(self, force: bool = False) -> None:  # type: ignore[override]
         """
         Entry point, consistent with other extractors.
         """
@@ -440,7 +440,7 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     return bool(value)
 
 
-def run_staff_capture(**kwargs: dict) -> None:
+def run_staff_capture(**kwargs: Any) -> None:
     """
     Capture staff files from Google Drive and load into MongoDB.
 
