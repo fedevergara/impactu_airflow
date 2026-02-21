@@ -2,19 +2,20 @@ from unittest.mock import MagicMock, patch
 
 import mongomock
 import pytest
+from mongomock.collection import BulkOperationBuilder
 
 from extract.scimagojr.scimagojr_extractor import ScimagoJRExtractor
 
 # Workaround for mongomock bug with pymongo 4.x bulk_write
 # https://github.com/mongomock/mongomock/issues/812
-if hasattr(mongomock.collection.BulkOperationBuilder, "add_update"):
-    original_add_update = mongomock.collection.BulkOperationBuilder.add_update
+if hasattr(BulkOperationBuilder, "add_update"):
+    original_add_update = BulkOperationBuilder.add_update
 
     def patched_add_update(self, filter, doc, upsert=False, multi=False, **kwargs):
         kwargs.pop("sort", None)
         return original_add_update(self, filter, doc, upsert, multi, **kwargs)
 
-    mongomock.collection.BulkOperationBuilder.add_update = patched_add_update
+    BulkOperationBuilder.add_update = patched_add_update
 
 
 @pytest.fixture
