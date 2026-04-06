@@ -5,8 +5,8 @@ import os
 import time
 from typing import Any
 
+import cloudscraper
 import pandas as pd
-from curl_cffi import requests
 from pymongo import UpdateOne
 
 from extract.base_extractor import BaseExtractor
@@ -118,7 +118,19 @@ class ScimagoJRExtractor(BaseExtractor):
             params = {"year": str(year), "type": "all", "out": "xls"}
             self.logger.info(f"Downloading data for year {year}...")
 
-            response = requests.get(self.base_url, params=params, impersonate="chrome124")
+            scraper = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "linux", "desktop": True}
+            )
+            # Warm-up request: establishes Cloudflare session cookies.
+            # The warm-up itself may return 403, but that's expected.
+            scraper.get(self.base_url, params={"year": str(year)}, timeout=30)
+            time.sleep(3)
+            response = scraper.get(
+                self.base_url,
+                params=params,
+                headers={"Referer": f"{self.base_url}?year={year}"},
+                timeout=60,
+            )
             response.raise_for_status()
             content = response.text
 
