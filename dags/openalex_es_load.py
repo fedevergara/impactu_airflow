@@ -114,7 +114,8 @@ with DAG(
 ) as dag:
 
     def delete_index(**context: Any) -> None:
-        """Drop and recreate the Elasticsearch index."""
+        """Drop the Elasticsearch index if it exists."""
+        from elasticsearch import NotFoundError
         from mohan.Similarity import Similarity
 
         params = context["params"]
@@ -122,8 +123,11 @@ with DAG(
         es_index = params["es_index"]
 
         s = Similarity(es_index, es_uri=es_host, es_auth=es_auth)
-        s.delete_index(es_index)
-        logging.info("Deleted index '%s'", es_index)
+        try:
+            s.delete_index(es_index)
+            logging.info("Deleted index '%s'", es_index)
+        except NotFoundError:
+            logging.info("Index '%s' does not exist, skipping delete.", es_index)
 
     @task
     def prepare_chunks(**context: Any) -> list[dict]:
