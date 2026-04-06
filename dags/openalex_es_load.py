@@ -39,20 +39,25 @@ with DAG(
             type="string",
             description="MongoDB collection to read works from",
         ),
-        "es_host": Param(
-            "http://localhost:9200",
+        "es_conn_id": Param(
+            "elasticsearch_default",
             type="string",
-            description="Elasticsearch host URI (e.g. http://localhost:9200)",
+            description="Airflow Elasticsearch connection ID (host/port/login/password resolved from it)",
+        ),
+        "es_host": Param(
+            "",
+            type="string",
+            description="Override Elasticsearch host URI. If empty, resolved from es_conn_id.",
         ),
         "es_user": Param(
-            "elastic",
+            "",
             type="string",
-            description="Elasticsearch username",
+            description="Override Elasticsearch username. If empty, resolved from es_conn_id.",
         ),
         "es_password": Param(
-            "colav",
+            "",
             type="string",
-            description="Elasticsearch password",
+            description="Override Elasticsearch password. If empty, resolved from es_conn_id.",
         ),
         "es_index": Param(
             "openalex_index",
@@ -72,6 +77,8 @@ with DAG(
 
     def load_works(**context: Any) -> None:
         """Read works from MongoDB and index them into Elasticsearch."""
+        import logging
+
         from airflow.providers.mongo.hooks.mongo import MongoHook
         from kahi_impactu_utils.String import parse_html, parse_mathml
         from mohan.Similarity import Similarity
@@ -81,12 +88,29 @@ with DAG(
         bulk_size = params["bulk_size"]
 
         # ------------------------------------------------------------------ #
-        # Elasticsearch connection via mohan.Similarity                        #
+        # Elasticsearch connection — resolve from Airflow connection if not   #
+        # overridden via params                                                #
         # ------------------------------------------------------------------ #
+        es_host = params.get("es_host", "").strip()
+        es_user = params.get("es_user", "").strip()
+        es_password = params.get("es_password", "").strip()
+
+        if not es_host:
+            from airflow.sdk.bases.hook import BaseHook
+
+            conn = BaseHook.get_connection(params["es_conn_id"])
+            scheme = conn.schema or "http"
+            host = conn.host or "localhost"
+            port = conn.port or 9200
+            es_host = f"{scheme}://{host}:{port}"
+            es_user = es_user or conn.login or ""
+            es_password = es_password or conn.password or ""
+
+        es_auth = (es_user, es_password) if es_user else None
         s = Similarity(
             es_index,
-            es_uri=params["es_host"],
-            es_auth=(params["es_user"], params["es_password"]),
+            es_uri=es_host,
+            es_auth=es_auth,
         )
         s.delete_index(es_index)
 
@@ -157,14 +181,12 @@ with DAG(
 
             counter += 1
             if counter % 1000 == 0:
-                context["ti"].log.info("Progress: %d works indexed", counter)
+                logging.info("Progress: %d works indexed", counter)
 
         if es_entries:
             s.insert_bulk(es_entries)
 
-        context["ti"].log.info(
-            "Done. Total indexed: %d | Skipped (no title): %d", counter, count_nones
-        )
+        logging.info("Done. Total indexed: %d | Skipped (no title): %d", counter, count_nones)
 
     load_works_task = PythonOperator(
         task_id="load_works",
