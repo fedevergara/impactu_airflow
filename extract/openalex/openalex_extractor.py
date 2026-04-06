@@ -252,6 +252,14 @@ class OpenAlexExtractor(BaseExtractor):
             else:
                 raise
 
+        # Sparse index on title — used by openalex_es_load to filter and
+        # chunk documents efficiently without a full collection scan.
+        if self.collection_name == "works":
+            self.collection.create_index(
+                [("title", 1)], sparse=True, background=True, name="title_1"
+            )
+            self.logger.info("Ensured sparse index 'title_1' on works collection.")
+
     # ------------------------------------------------------------------
     # Partition discovery
     # ------------------------------------------------------------------
