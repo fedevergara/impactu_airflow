@@ -18,12 +18,23 @@ from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 
 DEFAULTS = {
-    "mongodb_uri": "mongodb://localhost:27017/",
+    "mongo_conn_id": "mongodb_default",
     "mongo_db": "dam",
     "cvlac_dataset_id": "bqtm-4y2h",
     "gruplac_production_id": "33dq-ab5a",
     "gruplac_groups_id": "hrhc-c4wu",
 }
+
+
+def _get_mongodb_uri(conn_id: str) -> str:
+    from airflow.hooks.base import BaseHook
+
+    conn = BaseHook.get_connection(conn_id)
+    host = conn.host or "localhost"
+    port = conn.port or 27017
+    if conn.login and conn.password:
+        return f"mongodb://{conn.login}:{conn.password}@{host}:{port}/"
+    return f"mongodb://{host}:{port}/"
 
 
 def _import_yuku():
@@ -44,28 +55,28 @@ def _make_yuku_instance(mongodb_uri: str, mongo_db: str):
 
 
 def download_gruplac_groups(
-    dataset_id: str, mongodb_uri: str, mongo_db: str, **_kwargs: Any
+    dataset_id: str, mongo_conn_id: str, mongo_db: str, **_kwargs: Any
 ) -> None:
-    y = _make_yuku_instance(mongodb_uri, mongo_db)
+    y = _make_yuku_instance(_get_mongodb_uri(mongo_conn_id), mongo_db)
     y.download_gruplac_groups(dataset_id)
 
 
 def download_gruplac_production(
-    dataset_id: str, mongodb_uri: str, mongo_db: str, **_kwargs: Any
+    dataset_id: str, mongo_conn_id: str, mongo_db: str, **_kwargs: Any
 ) -> None:
-    y = _make_yuku_instance(mongodb_uri, mongo_db)
+    y = _make_yuku_instance(_get_mongodb_uri(mongo_conn_id), mongo_db)
     y.download_gruplac_production(dataset_id)
 
 
-def download_cvlac_data(dataset_id: str, mongodb_uri: str, mongo_db: str, **_kwargs: Any) -> None:
-    y = _make_yuku_instance(mongodb_uri, mongo_db)
+def download_cvlac_data(dataset_id: str, mongo_conn_id: str, mongo_db: str, **_kwargs: Any) -> None:
+    y = _make_yuku_instance(_get_mongodb_uri(mongo_conn_id), mongo_db)
     y.download_cvlac_data(dataset_id)
 
 
 def download_cvlac_profiles(
-    mongodb_uri: str, mongo_db: str, use_raw: bool = False, **_kwargs: Any
+    mongo_conn_id: str, mongo_db: str, use_raw: bool = False, **_kwargs: Any
 ) -> None:
-    y = _make_yuku_instance(mongodb_uri, mongo_db)
+    y = _make_yuku_instance(_get_mongodb_uri(mongo_conn_id), mongo_db)
     y.download_cvlac_profile(use_raw=use_raw)
 
 
@@ -91,7 +102,7 @@ with DAG(
         python_callable=download_gruplac_groups,
         op_kwargs={
             "dataset_id": "{{ params.gruplac_groups_id }}",
-            "mongodb_uri": "{{ params.mongodb_uri }}",
+            "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "mongo_db": "{{ params.mongo_db }}",
         },
     )
@@ -101,7 +112,7 @@ with DAG(
         python_callable=download_gruplac_production,
         op_kwargs={
             "dataset_id": "{{ params.gruplac_production_id }}",
-            "mongodb_uri": "{{ params.mongodb_uri }}",
+            "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "mongo_db": "{{ params.mongo_db }}",
         },
     )
@@ -111,7 +122,7 @@ with DAG(
         python_callable=download_cvlac_data,
         op_kwargs={
             "dataset_id": "{{ params.cvlac_dataset_id }}",
-            "mongodb_uri": "{{ params.mongodb_uri }}",
+            "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "mongo_db": "{{ params.mongo_db }}",
         },
     )
@@ -120,7 +131,7 @@ with DAG(
         task_id="cvlac_profiles",
         python_callable=download_cvlac_profiles,
         op_kwargs={
-            "mongodb_uri": "{{ params.mongodb_uri }}",
+            "mongo_conn_id": "{{ params.mongo_conn_id }}",
             "mongo_db": "{{ params.mongo_db }}",
             "use_raw": False,
         },
