@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from airflow import DAG
@@ -135,6 +135,10 @@ with DAG(
             "mongo_db": "{{ params.mongo_db }}",
             "use_raw": False,
         },
+        # Yuku has built-in checkpoint: already-downloaded profiles are skipped on retry.
+        # High retries ensure the task resumes automatically if killed (long-running: ~6h+).
+        retries=10,
+        retry_delay=timedelta(seconds=0),
     )
 
     # Order: groups -> production -> cvlac data -> profiles (profiles need data)

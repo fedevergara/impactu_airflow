@@ -237,6 +237,7 @@ with DAG(
                 "mongo_conn_id": "{{ params.mongo_conn_id }}",
                 "mongo_db": "{{ params.mongo_db }}",
             },
+            trigger_rule="all_done",
         )
 
         create_task >> harvest_task
