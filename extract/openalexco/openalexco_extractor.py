@@ -118,8 +118,6 @@ class OpenAlexCOExtractor(BaseExtractor):
     def _cut_works_by_sources(self) -> None:
         self.logger.info("Step 2: cutting works from Colombian sources …")
         t0 = time.time()
-        self._client[self.db_in]["works"].create_index("id")
-        self._client[self.db_in]["works"].create_index("locations.source.id")
         self._client[self.db_out]["works"].create_index("id")
 
         sources_ids = list(
@@ -155,7 +153,6 @@ class OpenAlexCOExtractor(BaseExtractor):
         from extract.openalexco.colombia_cut_dois import colombia_cut_dois
 
         self.logger.info("Step 3: cutting works by DOI …")
-        self._client[self.db_in]["works"].create_index("doi")
         t0 = time.time()
         colombia_cut_dois(
             db_in=self.db_in,
@@ -208,7 +205,6 @@ class OpenAlexCOExtractor(BaseExtractor):
     def _cut_authors(self) -> None:
         self.logger.info("Step 6: extracting referenced authors …")
         t0 = time.time()
-        self._client[self.db_in]["authors"].create_index("id")
         pipeline = [
             {"$project": {"_id": 0, "authorships.author.id": 1}},
             {"$unwind": "$authorships"},
