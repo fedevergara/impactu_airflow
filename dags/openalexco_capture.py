@@ -77,6 +77,11 @@ with DAG(
             type="string",
             description="joblib backend (threading or loky)",
         ),
+        "drop_db": Param(
+            True,
+            type="boolean",
+            description="Drop the target database before processing (full rebuild)",
+        ),
     },
     schedule=None,
     catchup=False,
@@ -101,6 +106,28 @@ with DAG(
             es_auth=(params["es_user"], params["es_password"]),
             client=client,
         )
+
+    # ------------------------------------------------------------------
+    # Task 0 — Drop target DB
+    # ------------------------------------------------------------------
+    def prepare_db(**context: Any) -> None:
+        import logging
+
+        params = context["params"]
+        if not params.get("drop_db", True):
+            return
+        log = logging.getLogger("airflow.task.prepare_db")
+        hook = MongoHook(mongo_conn_id=params["mongo_conn_id"])
+        client = hook.get_conn()
+        db_out = params["db_out"]
+        log.warning("Dropping database '%s' before Colombia cut.", db_out)
+        client.drop_database(db_out)
+        log.info("Database '%s' dropped successfully.", db_out)
+
+    t_prepare = PythonOperator(
+        task_id="prepare_db",
+        python_callable=prepare_db,
+    )
 
     # ------------------------------------------------------------------
     # Task 1 — Works by authorship
@@ -189,4 +216,13 @@ with DAG(
     # ------------------------------------------------------------------
     # Dependencies: sequential pipeline
     # ------------------------------------------------------------------
-    t_authorship >> t_sources >> t_dois >> t_minciencias >> t_dedup >> t_authors >> t_aux
+    (
+        t_prepare
+        >> t_authorship
+        >> t_sources
+        >> t_dois
+        >> t_minciencias
+        >> t_dedup
+        >> t_authors
+        >> t_aux
+    )
