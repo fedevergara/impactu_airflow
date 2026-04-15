@@ -87,9 +87,28 @@ class OpenAlexCOExtractor(BaseExtractor):
         self.create_indexes()
 
     def create_indexes(self) -> None:
-        self._client[self.db_out]["works"].create_index(
-            [("type", 1), ("type_crossref", 1), ("id", 1)]
+        db_in = self._client[self.db_in]
+        db_out = self._client[self.db_out]
+
+        # --- db_in (openalex) indexes needed for the cut queries ---
+        # Step 1: authorship country filter
+        db_in["works"].create_index("authorships.countries", background=True)
+        db_in["works"].create_index("authorships.institutions.country_code", background=True)
+        # Step 2: source country + works by source
+        db_in["sources"].create_index("country_code", background=True)
+        db_in["works"].create_index("locations.source.id", background=True)
+        # Step 3: DOI lookup
+        db_in["works"].create_index("doi", background=True)
+
+        # --- db_out (openalexco) indexes ---
+        # Compound index used by $merge on "id" and type queries
+        db_out["works"].create_index(
+            [("type", 1), ("type_crossref", 1), ("id", 1)], background=True
         )
+        # DOI lookup for dedup in step 3
+        db_out["works"].create_index("doi", background=True)
+        # Author extraction in step 6
+        db_out["works"].create_index("authorships.author.id", background=True)
 
     # ------------------------------------------------------------------
     # Step 1 — Colombian authorship works
