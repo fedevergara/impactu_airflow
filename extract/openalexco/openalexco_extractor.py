@@ -138,6 +138,10 @@ class OpenAlexCOExtractor(BaseExtractor):
         self.logger.info("Step 2: cutting works from Colombian sources …")
         t0 = time.time()
 
+        # $out in step 1 drops and recreates the collection, removing all indexes.
+        # $merge requires a unique index on the join field — recreate it here.
+        self._client[self.db_out]["works"].create_index("id", unique=True, background=True)
+
         source_ids = [
             s["id"]
             for s in self._client[self.db_in]["sources"].find(

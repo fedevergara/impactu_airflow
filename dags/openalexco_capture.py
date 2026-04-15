@@ -82,6 +82,11 @@ with DAG(
             type="boolean",
             description="Drop the target database before processing (full rebuild)",
         ),
+        "skip_authorship": Param(
+            False,
+            type="boolean",
+            description="Skip cut_works_authorship step (useful for testing)",
+        ),
     },
     schedule=None,
     catchup=False,
@@ -133,6 +138,13 @@ with DAG(
     # Task 1 — Works by authorship
     # ------------------------------------------------------------------
     def cut_works_authorship(**context: Any) -> None:
+        if context["params"].get("skip_authorship", False):
+            import logging
+
+            logging.getLogger("airflow.task").info(
+                "skip_authorship=True — skipping cut_works_authorship."
+            )
+            return
         ext = _make_extractor(**context)
         ext._cut_works_by_authorship()
 
