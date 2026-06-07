@@ -1467,3 +1467,17 @@ endpoints["dspace_unisimon"]["checkpoint"] = {}
 endpoints["dspace_unisimon"]["checkpoint"]["enabled"] = True
 endpoints["dspace_unisimon"]["checkpoint"]["selective"] = False
 endpoints["dspace_unisimon"]["checkpoint"]["days"] = 30
+
+endpoints["dspace_humboldt"] = {}
+endpoints["dspace_humboldt"]["enabled"] = True
+endpoints["dspace_humboldt"]["name"] = (
+    "INSTITUTO DE INVESTIGACION DE RECURSOS BIOLOGICOS ALEXANDER VON HUMBOLDT"
+)
+endpoints["dspace_humboldt"]["ror"] = "https://ror.org/026dk4f10"
+endpoints["dspace_humboldt"]["url"] = "https://repository.humboldt.org.co/server/oai/request"
+endpoints["dspace_humboldt"]["metadataPrefix"] = "dim"
+endpoints["dspace_humboldt"]["rate_limit"] = {"calls": 10000, "secs": 1}
+endpoints["dspace_humboldt"]["checkpoint"] = {}
+endpoints["dspace_humboldt"]["checkpoint"]["enabled"] = True
+endpoints["dspace_humboldt"]["checkpoint"]["selective"] = False
+endpoints["dspace_humboldt"]["checkpoint"]["days"] = 30
