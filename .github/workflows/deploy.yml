@@ -58,7 +58,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pybind11
+          pip install --upgrade pip setuptools wheel pybind11
           pip install --no-build-isolation -r requirements.txt
           pip install pytest pytest-mock mongomock apache-airflow==3.1.5
 
