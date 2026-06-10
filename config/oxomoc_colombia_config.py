@@ -1,9 +1,7 @@
 endpoints: dict[str, dict] = {}
 endpoints["dspace_ccb"] = {}
 endpoints["dspace_ccb"]["enabled"] = True
-endpoints["dspace_ccb"]["name"] = (
-    "CAMARA DE COMERCIO DE BOGOTA"
-)
+endpoints["dspace_ccb"]["name"] = "CAMARA DE COMERCIO DE BOGOTA"
 endpoints["dspace_ccb"]["ror"] = ""
 endpoints["dspace_ccb"]["url"] = "https://bibliotecadigital.ccb.org.co/server/oai/request"
 endpoints["dspace_ccb"]["metadataPrefix"] = "dim"
@@ -1443,7 +1441,9 @@ endpoints["dspace_redinvcol"] = {}
 endpoints["dspace_redinvcol"]["enabled"] = True
 endpoints["dspace_redinvcol"]["name"] = "Red Investigadores Economia Colombia"
 endpoints["dspace_redinvcol"]["ror"] = ""
-endpoints["dspace_redinvcol"]["url"] = ("https://repositorio.redinvestigadores.org/server/oai/request")
+endpoints["dspace_redinvcol"]["url"] = (
+    "https://repositorio.redinvestigadores.org/server/oai/request"
+)
 endpoints["dspace_redinvcol"]["metadataPrefix"] = "dim"
 endpoints["dspace_redinvcol"]["rate_limit"] = {"calls": 10000, "secs": 1}
 endpoints["dspace_redinvcol"]["checkpoint"] = {}
