@@ -63,7 +63,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip setuptools wheel "pybind11<3"
+          pip install --upgrade pip setuptools wheel "pybind11<3" "numpy<2.1"
+          CXXFLAGS="-include cstdint" pip install --no-build-isolation --no-deps fasttext==0.9.2
           pip install --no-build-isolation -r requirements.txt
           pip install pytest pytest-mock mongomock apache-airflow==3.1.5
 
